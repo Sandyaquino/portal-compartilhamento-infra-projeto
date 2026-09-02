@@ -31,6 +31,7 @@ router = APIRouter()
 SCHEMA = "CLB349328"
 TB_BASE = f"{SCHEMA}.PORTAL_COMPARTILHAMENTO_BASE_POSTE"
 TB_OCUPACAO = f"{SCHEMA}.PORTAL_COMPARTILHAMENTO_POSTE_OCUPACAO"
+TB_OPERADORA = f"{SCHEMA}.PORTAL_COMPARTILHAMENTO_OPERADORA"
 
 LIMITE_PONTOS = 2000
 LIMITE_AREA_GRAUS2 = 0.02
@@ -274,21 +275,46 @@ def mapa_base_postes(
         )
         linhas = cursor.fetchall()
         truncado = len(linhas) > limite
-        postes = [
-            {
-                "NU_PG_ID": int(r[0]) if r[0] is not None else None,
-                "NU_LOCALIDADE_ID": int(r[1]) if r[1] is not None else None,
-                "LOCALIDADE": r[2],
-                "DE_BARRAMENTO": r[3],
-                "MUNICIPIO": r[4],
-                "UF": r[5],
-                "NU_LATITUDE": _num(r[6]),
-                "NU_LONGITUDE": _num(r[7]),
-                "DATA_ATUALIZACAO": _num(r[8]),
-                "TEM_PROVEDOR": r[9],
-            }
-            for r in linhas[:limite]
-        ]
+        linhas = linhas[:limite]
+
+        # Provedores alocados por poste (uma consulta so, para todos os
+        # barramentos do resultado).
+        barramentos = sorted({r[3] for r in linhas if r[3]})
+        provedores_por_barramento: dict = {}
+        if barramentos:
+            marcadores = ",".join(["?"] * len(barramentos))
+            cursor.execute(
+                f"""
+                SELECT DISTINCT O.BARRAMENTO, OP.RAZAO_SOCIAL, OP.CNPJ
+                FROM {TB_OCUPACAO} O
+                JOIN {TB_OPERADORA} OP ON OP.ID = O.ID_OPERADORA
+                WHERE O.ID_OPERADORA IS NOT NULL AND O.BARRAMENTO IN ({marcadores})
+                """,
+                barramentos,
+            )
+            for barramento, razao, cnpj in cursor.fetchall():
+                provedores_por_barramento.setdefault(barramento, []).append(
+                    {"RAZAO_SOCIAL": razao, "CNPJ": cnpj}
+                )
+
+        postes = []
+        for r in linhas:
+            provedores = provedores_por_barramento.get(r[3], [])
+            postes.append(
+                {
+                    "NU_PG_ID": int(r[0]) if r[0] is not None else None,
+                    "NU_LOCALIDADE_ID": int(r[1]) if r[1] is not None else None,
+                    "LOCALIDADE": r[2],
+                    "DE_BARRAMENTO": r[3],
+                    "MUNICIPIO": r[4],
+                    "UF": r[5],
+                    "NU_LATITUDE": _num(r[6]),
+                    "NU_LONGITUDE": _num(r[7]),
+                    "DATA_ATUALIZACAO": _num(r[8]),
+                    "TEM_PROVEDOR": "S" if provedores else "N",
+                    "PROVEDORES": provedores,
+                }
+            )
         return {"postes": postes, "truncado": truncado, "agregar": False, "total_na_selecao": total_na_selecao}
     finally:
         if cursor:

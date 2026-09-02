@@ -5,6 +5,8 @@ export type VinculoBasePoste = "todos" | "sem_provedor" | "com_provedor"
 
 export type BaseBounds = { min_x: number; max_x: number; min_y: number; max_y: number }
 
+export type BaseProvedor = { RAZAO_SOCIAL: string | null; CNPJ: string | null }
+
 export type BasePosteMapa = {
   NU_PG_ID: number
   NU_LOCALIDADE_ID: number | null
@@ -16,6 +18,7 @@ export type BasePosteMapa = {
   NU_LONGITUDE: number
   DATA_ATUALIZACAO: string | null
   TEM_PROVEDOR: "S" | "N"
+  PROVEDORES: BaseProvedor[]
 }
 
 export type BasePostesMapaResposta = {

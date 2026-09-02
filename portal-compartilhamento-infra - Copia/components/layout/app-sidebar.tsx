@@ -27,7 +27,6 @@ import {
   FolderKanban,
   Inbox,
   ListTodo,
-  Database,
 } from "lucide-react"
 
 import {
@@ -180,11 +179,6 @@ const menuItems = [
     title: "Mapa de Postes",
     url: "/mapa-postes",
     icon: MapPin,
-  },
-  {
-    title: "Base de Postes",
-    url: "/mapa-postes/base",
-    icon: Database,
   },
   {
     title: "Administração",

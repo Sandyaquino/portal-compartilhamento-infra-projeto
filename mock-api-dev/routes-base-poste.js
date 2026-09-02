@@ -45,7 +45,22 @@ function aplicarVinculo(lista, vinculo) {
   return lista
 }
 
+// Provedores/operadoras alocados no poste (distinct), via POSTE_OCUPACAO.
+function provedoresDoBarramento(deBarramento) {
+  const vistos = new Set()
+  const lista = []
+  for (const o of db.ocupacoes) {
+    if (o.BARRAMENTO !== deBarramento || !o._idOperadora) continue
+    const chave = o.CNPJ || o.RAZAO_SOCIAL || String(o._idOperadora)
+    if (vistos.has(chave)) continue
+    vistos.add(chave)
+    lista.push({ RAZAO_SOCIAL: o.RAZAO_SOCIAL || o.ORGANIZATION_NAME, CNPJ: o.CNPJ || null })
+  }
+  return lista
+}
+
 function serializar(p) {
+  const provedores = provedoresDoBarramento(p.DE_BARRAMENTO)
   return {
     NU_PG_ID: p.NU_PG_ID,
     NU_LOCALIDADE_ID: p.NU_LOCALIDADE_ID,
@@ -56,7 +71,8 @@ function serializar(p) {
     NU_LATITUDE: p.NU_LATITUDE,
     NU_LONGITUDE: p.NU_LONGITUDE,
     DATA_ATUALIZACAO: p.DATA_ATUALIZACAO,
-    TEM_PROVEDOR: db.basePosteTemProvedor(p.DE_BARRAMENTO) ? "S" : "N",
+    TEM_PROVEDOR: provedores.length ? "S" : "N",
+    PROVEDORES: provedores,
   }
 }
 

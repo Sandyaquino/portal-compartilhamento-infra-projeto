@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle, CheckCircle2, Circle, Flame, Gauge, Hexagon, Layers, ListChecks, MapPin, MousePointerSquareDashed, Search, Square, X } from "lucide-react"
+import { AlertTriangle, Building2, CheckCircle2, Circle, Database, Flame, Gauge, Hexagon, Info, Layers, ListChecks, MapPin, MousePointerSquareDashed, Search, Square, X } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { KpiCard } from "@/components/comercial/kpi-card"
@@ -33,6 +33,18 @@ import {
   type TipoAcao,
 } from "@/lib/types/postes"
 import type { CelulaDensidade, FormaSelecao, ViewportBounds } from "@/components/mapa-postes/mapa-maplibre"
+import {
+  LABEL_VINCULO_BASE,
+  type BaseLocalidade,
+  type BaseMunicipio,
+  type BasePosteMapa,
+  type BasePostesMapaResposta,
+  type ResumoBasePostes,
+  type VinculoBasePoste,
+} from "@/lib/types/base-postes"
+
+type Camada = "parque" | "base"
+const VINCULOS_BASE: VinculoBasePoste[] = ["todos", "sem_provedor", "com_provedor"]
 
 const MapaMapLibre = dynamic(() => import("@/components/mapa-postes/mapa-maplibre"), {
   ssr: false,
@@ -115,6 +127,23 @@ function MapaPostesConteudo() {
   // Busca "Ir para poste" (por barramento) - voa até o poste e abre o detalhe.
   const [buscaBarramento, setBuscaBarramento] = useState("")
   const [posteDestaque, setPosteDestaque] = useState<PosteMapa | null>(null)
+
+  // Camada "Base de Postes Coelba" (cadastro de ativos). Ao aprofundar numa
+  // localidade, mostra os postes da base e os provedores alocados em cada um,
+  // deixando claro os que não têm provedor associado.
+  const [camada, setCamada] = useState<Camada>("parque")
+  const [baseResumo, setBaseResumo] = useState<ResumoBasePostes | null>(null)
+  const [baseMunicipios, setBaseMunicipios] = useState<BaseMunicipio[]>([])
+  const [baseLocalidades, setBaseLocalidades] = useState<BaseLocalidade[]>([])
+  const [baseMunicipio, setBaseMunicipio] = useState("")
+  const [baseLocalidade, setBaseLocalidade] = useState<number | null>(null)
+  const [baseVinculo, setBaseVinculo] = useState<VinculoBasePoste>("sem_provedor")
+  const [baseAgregar, setBaseAgregar] = useState(true)
+  const [baseTruncado, setBaseTruncado] = useState(false)
+  const [baseTotalSelecao, setBaseTotalSelecao] = useState(0)
+  const [basePorBarramento, setBasePorBarramento] = useState<Record<string, BasePosteMapa>>({})
+  const [basePosteSel, setBasePosteSel] = useState<BasePosteMapa | null>(null)
+  const [gerandoFiscalizacao, setGerandoFiscalizacao] = useState(false)
 
   // Navegação rápida por município - so move o mapa (fitBounds), nao filtra
   // dados: quem filtra os postes continua sendo o viewport, igual sempre foi.
@@ -313,9 +342,83 @@ function MapaPostesConteudo() {
     [],
   )
 
+  // --- Camada Base: carrega postes da base Coelba aplicando a estratégia
+  // (agrega quando a seleção é ampla; pontos + provedores quando é estreita).
+  const carregarBase = useCallback(
+    async (bounds: ViewportBounds | null, mun: string, loc: number | null, vinculo: VinculoBasePoste) => {
+      setLoadingPostes(true)
+      try {
+        const p = new URLSearchParams({ vinculo })
+        if (loc) p.set("localidade", String(loc))
+        else if (mun) p.set("municipio", mun)
+        if (bounds) {
+          p.set("min_x", String(bounds.min_x))
+          p.set("max_x", String(bounds.max_x))
+          p.set("min_y", String(bounds.min_y))
+          p.set("max_y", String(bounds.max_y))
+        }
+        const res = await fetch(`${API_BASE_URL}/api/base-postes/mapa?${p.toString()}`, { cache: "no-store" })
+        if (!res.ok) throw new Error(`Erro ${res.status} ao carregar a base de postes`)
+        const dados: BasePostesMapaResposta = await res.json()
+        setBaseTotalSelecao(dados.total_na_selecao ?? 0)
+        setBaseTruncado(Boolean(dados.truncado))
+        setBaseAgregar(Boolean(dados.agregar))
+
+        if (dados.agregar) {
+          setPostes([])
+          setBasePorBarramento({})
+          if (bounds) {
+            const pd = new URLSearchParams({
+              vinculo,
+              grade: "24",
+              min_x: String(bounds.min_x),
+              max_x: String(bounds.max_x),
+              min_y: String(bounds.min_y),
+              max_y: String(bounds.max_y),
+            })
+            if (mun) pd.set("municipio", mun)
+            const rd = await fetch(`${API_BASE_URL}/api/base-postes/densidade?${pd.toString()}`, { cache: "no-store" })
+            setCelulasDensidade(rd.ok ? (await rd.json()).celulas ?? [] : [])
+          } else {
+            setCelulasDensidade([])
+          }
+        } else {
+          setCelulasDensidade([])
+          const indice: Record<string, BasePosteMapa> = {}
+          const paraMapa: PosteMapa[] = (dados.postes ?? []).map((bp) => {
+            indice[bp.DE_BARRAMENTO] = bp
+            return {
+              BARRAMENTO: bp.DE_BARRAMENTO,
+              X: bp.NU_LONGITUDE,
+              Y: bp.NU_LATITUDE,
+              TEM_OCUPACAO_IDENTIFICADA: bp.TEM_PROVEDOR,
+            }
+          })
+          setBasePorBarramento(indice)
+          setPostes(paraMapa)
+        }
+      } catch (error) {
+        setNotification({
+          type: "error",
+          message: error instanceof Error ? error.message : "Erro ao carregar a base de postes",
+        })
+      } finally {
+        setLoadingPostes(false)
+      }
+    },
+    [],
+  )
+
   function agendarCarga(bounds: ViewportBounds) {
     viewportAtualRef.current = bounds
     if (debounceRef.current) clearTimeout(debounceRef.current)
+    if (camada === "base") {
+      const mun = baseMunicipio
+      const loc = baseLocalidade
+      const vinc = baseVinculo
+      debounceRef.current = setTimeout(() => carregarBase(bounds, mun, loc, vinc), DEBOUNCE_MS)
+      return
+    }
     debounceRef.current = setTimeout(() => {
       carregarPostes(bounds, idsOperadoras, status, saturacao)
       if (mostrarDensidade) carregarDensidade(bounds, idsOperadoras, status, saturacao)
@@ -324,12 +427,98 @@ function MapaPostesConteudo() {
 
   // Refaz a busca quando o filtro muda, reaproveitando o ultimo viewport conhecido.
   useEffect(() => {
+    if (camada === "base") return
     if (viewportAtualRef.current) {
       carregarPostes(viewportAtualRef.current, idsOperadoras, status, saturacao)
       if (mostrarDensidade) carregarDensidade(viewportAtualRef.current, idsOperadoras, status, saturacao)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsOperadoras, status, saturacao])
+
+  // Camada Base: carrega ao trocar de camada / município / localidade / vínculo.
+  useEffect(() => {
+    if (camada !== "base") return
+    carregarBase(viewportAtualRef.current, baseMunicipio, baseLocalidade, baseVinculo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camada, baseMunicipio, baseLocalidade, baseVinculo])
+
+  // Carga inicial da camada Base (resumo + municípios), uma vez.
+  useEffect(() => {
+    if (camada !== "base" || baseMunicipios.length > 0) return
+    fetch(`${API_BASE_URL}/api/base-postes/resumo`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setBaseResumo)
+      .catch(() => {})
+    fetch(`${API_BASE_URL}/api/base-postes/municipios`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setBaseMunicipios(Array.isArray(d) ? d : []))
+      .catch(() => setBaseMunicipios([]))
+  }, [camada, baseMunicipios.length])
+
+  // Localidades do município escolhido + voo até a área.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBaseLocalidade(null)
+    if (!baseMunicipio) {
+      setBaseLocalidades([])
+      return
+    }
+    let cancelado = false
+    fetch(`${API_BASE_URL}/api/base-postes/localidades?municipio=${encodeURIComponent(baseMunicipio)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((ls) => {
+        if (!cancelado) setBaseLocalidades(Array.isArray(ls) ? ls : [])
+      })
+      .catch(() => {
+        if (!cancelado) setBaseLocalidades([])
+      })
+    const m = baseMunicipios.find((x) => x.MUNICIPIO === baseMunicipio)
+    if (m?.bounds) setVooPara(m.bounds)
+    return () => {
+      cancelado = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseMunicipio])
+
+  useEffect(() => {
+    if (!baseLocalidade) return
+    const l = baseLocalidades.find((x) => x.NU_LOCALIDADE_ID === baseLocalidade)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (l?.bounds) setVooPara(l.bounds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseLocalidade])
+
+  async function gerarFiscalizacaoBase() {
+    if (!selecaoArea) return
+    setGerandoFiscalizacao(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/base-postes/fiscalizacao`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bounds: selecaoArea.bounds,
+          municipio: baseMunicipio || null,
+          localidade: baseLocalidade || null,
+          criado_por: user?.login ?? null,
+        }),
+      })
+      const dados = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(dados?.detail || "Erro ao gerar a fiscalização")
+      setNotification({
+        type: "success",
+        message: `Fiscalização #${dados.id_acao} criada com ${dados.qtd_postes} poste(s) sem provedor. Abra em Ações do Mapa.`,
+      })
+      setSelecaoArea(null)
+      setModoSelecao(false)
+    } catch (error) {
+      setNotification({
+        type: "error",
+        message: error instanceof Error ? error.message : "Erro ao gerar a fiscalização",
+      })
+    } finally {
+      setGerandoFiscalizacao(false)
+    }
+  }
 
   // Liga/desliga o overlay de densidade sem esperar o próximo movimento do mapa.
   useEffect(() => {
@@ -393,76 +582,195 @@ function MapaPostesConteudo() {
         description="Consulta de postes e ocupações compartilhadas (Uso Compartilhado)."
         breadcrumbs={[{ label: "Início", href: "/" }, { label: "Mapa de Postes" }]}
         actions={
-          <Link href="/mapa-postes/acoes">
-            <Button type="button" variant="outline">
-              Ações do Mapa
-            </Button>
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => setCamada("parque")}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                  camada === "parque" ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Parque
+              </button>
+              <button
+                type="button"
+                onClick={() => setCamada("base")}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+                  camada === "base" ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                <Database className="h-3.5 w-3.5" />
+                Base Coelba
+              </button>
+            </div>
+            <Link href="/mapa-postes/acoes">
+              <Button type="button" variant="outline">
+                Ações do Mapa
+              </Button>
+            </Link>
+          </div>
         }
       />
 
       <NotificationBanner notification={notification} />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          title="Postes"
-          value={resumo ? (resumo.total_postes ?? 0).toLocaleString("pt-BR") : "…"}
-          subtitle="Total cadastrado"
-          icon={MapPin}
-          color="text-primary"
-        />
-        <KpiCard
-          title="Ocupações"
-          value={resumo ? (resumo.total_ocupacoes ?? 0).toLocaleString("pt-BR") : "…"}
-          subtitle="Total de registros"
-          icon={ListChecks}
-          color="text-slate-600"
-        />
-        <KpiCard
-          title="Identificados"
-          value={resumo ? `${resumo.percentual_identificado ?? 0}%` : "…"}
-          subtitle={resumo ? `${(resumo.postes_identificados ?? 0).toLocaleString("pt-BR")} postes com ao menos 1 ocupação identificada` : "Carregando..."}
-          icon={CheckCircle2}
-          color="text-green-600"
-        />
-        <KpiCard
-          title="Esgotados"
-          value={resumo && resumo.postes_esgotados != null ? resumo.postes_esgotados.toLocaleString("pt-BR") : "n/d"}
-          subtitle={
-            resumo && resumo.postes_sobrecarga != null
-              ? `${resumo.postes_sobrecarga.toLocaleString("pt-BR")} em sobrecarga`
-              : "Sem dado de capacidade do poste"
-          }
-          icon={AlertTriangle}
-          color="text-red-600"
-        />
-      </div>
+      {camada === "base" ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            title="Postes na base"
+            value={baseResumo ? baseResumo.total.toLocaleString("pt-BR") : "…"}
+            subtitle={`${baseResumo?.municipios ?? "—"} municípios · ${baseResumo?.localidades ?? "—"} localidades`}
+            icon={Database}
+            color="text-primary"
+          />
+          <KpiCard
+            title="Sem provedor"
+            value={baseResumo ? baseResumo.sem_provedor.toLocaleString("pt-BR") : "…"}
+            subtitle="Alvo de fiscalização"
+            icon={AlertTriangle}
+            color="text-amber-600"
+          />
+          <KpiCard
+            title="Com provedor"
+            value={baseResumo ? baseResumo.com_provedor.toLocaleString("pt-BR") : "…"}
+            subtitle="Ocupação identificada"
+            icon={CheckCircle2}
+            color="text-green-600"
+          />
+          <KpiCard
+            title="Na seleção"
+            value={baseTotalSelecao ? baseTotalSelecao.toLocaleString("pt-BR") : "…"}
+            subtitle={LABEL_VINCULO_BASE[baseVinculo]}
+            icon={ListChecks}
+            color="text-slate-600"
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            title="Postes"
+            value={resumo ? (resumo.total_postes ?? 0).toLocaleString("pt-BR") : "…"}
+            subtitle="Total cadastrado"
+            icon={MapPin}
+            color="text-primary"
+          />
+          <KpiCard
+            title="Ocupações"
+            value={resumo ? (resumo.total_ocupacoes ?? 0).toLocaleString("pt-BR") : "…"}
+            subtitle="Total de registros"
+            icon={ListChecks}
+            color="text-slate-600"
+          />
+          <KpiCard
+            title="Identificados"
+            value={resumo ? `${resumo.percentual_identificado ?? 0}%` : "…"}
+            subtitle={resumo ? `${(resumo.postes_identificados ?? 0).toLocaleString("pt-BR")} postes com ao menos 1 ocupação identificada` : "Carregando..."}
+            icon={CheckCircle2}
+            color="text-green-600"
+          />
+          <KpiCard
+            title="Esgotados"
+            value={resumo && resumo.postes_esgotados != null ? resumo.postes_esgotados.toLocaleString("pt-BR") : "n/d"}
+            subtitle={
+              resumo && resumo.postes_sobrecarga != null
+                ? `${resumo.postes_sobrecarga.toLocaleString("pt-BR")} em sobrecarga`
+                : "Sem dado de capacidade do poste"
+            }
+            icon={AlertTriangle}
+            color="text-red-600"
+          />
+        </div>
+      )}
 
       <div className="flex flex-col gap-4 md:flex-row">
-        <FiltroSidebar
-          operadoras={operadoras}
-          idsOperadoras={idsOperadoras}
-          onMudarIdsOperadoras={setIdsOperadoras}
-          status={status}
-          onMudarStatus={setStatus}
-          saturacao={saturacao}
-          onMudarSaturacao={setSaturacao}
-          coresOperadoras={coresOperadoras}
-          onMudarCorOperadora={mudarCorOperadora}
-          onVerNoMapa={verOperadoraNoMapa}
-        />
+        {camada === "parque" && (
+          <FiltroSidebar
+            operadoras={operadoras}
+            idsOperadoras={idsOperadoras}
+            onMudarIdsOperadoras={setIdsOperadoras}
+            status={status}
+            onMudarStatus={setStatus}
+            saturacao={saturacao}
+            onMudarSaturacao={setSaturacao}
+            coresOperadoras={coresOperadoras}
+            onMudarCorOperadora={mudarCorOperadora}
+            onVerNoMapa={verOperadoraNoMapa}
+          />
+        )}
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {idsOperadoras.length === 0 && (
+          {camada === "base" && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+              <select
+                value={baseMunicipio}
+                onChange={(event) => setBaseMunicipio(event.target.value)}
+                className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-sm"
+              >
+                <option value="">Todos os municípios</option>
+                {baseMunicipios.map((m) => (
+                  <option key={m.MUNICIPIO} value={m.MUNICIPIO}>
+                    {m.MUNICIPIO} ({m.TOTAL.toLocaleString("pt-BR")})
+                  </option>
+                ))}
+              </select>
+              <select
+                value={baseLocalidade ?? ""}
+                onChange={(event) => setBaseLocalidade(event.target.value ? Number(event.target.value) : null)}
+                disabled={!baseMunicipio}
+                className="h-8 rounded-lg border border-slate-300 bg-white px-2 text-sm disabled:opacity-50"
+              >
+                <option value="">Todas as localidades</option>
+                {baseLocalidades.map((l) => (
+                  <option key={l.NU_LOCALIDADE_ID} value={l.NU_LOCALIDADE_ID}>
+                    {l.LOCALIDADE} · {l.SEM_PROVEDOR.toLocaleString("pt-BR")} s/ provedor
+                  </option>
+                ))}
+              </select>
+              <div className="flex gap-1 rounded-lg border border-slate-200 p-0.5">
+                {VINCULOS_BASE.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setBaseVinculo(v)}
+                    className={`rounded-md px-2 py-1 text-xs font-medium transition ${
+                      baseVinculo === v ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {LABEL_VINCULO_BASE[v]}
+                  </button>
+                ))}
+              </div>
+              <span className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500" /> com provedor
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-slate-300" /> sem provedor
+                </span>
+              </span>
+            </div>
+          )}
+
+          {camada === "parque" && idsOperadoras.length === 0 && (
             <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
               <MapPin className="h-4 w-4 shrink-0" />
               Selecione ao menos uma operadora para ver os postes no mapa.
             </div>
           )}
-          {truncado && (
+          {camada === "parque" && truncado && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               Muitos postes nesta área — mostrando só uma parte. Dê zoom para ver os pontos individuais.
+            </div>
+          )}
+          {camada === "base" && (baseAgregar || baseTruncado) && (
+            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              <Info className="h-4 w-4 shrink-0" />
+              {baseAgregar
+                ? "Seleção ampla — mostrando densidade por região. Escolha uma localidade ou aproxime o zoom para ver os postes da base e seus provedores."
+                : `Mostrando 2.000 de ${baseTotalSelecao.toLocaleString("pt-BR")} postes na área. Aproxime o zoom ou filtre por localidade.`}
             </div>
           )}
           {loadingPostes && <p className="text-xs text-slate-500">Atualizando postes...</p>}
@@ -503,33 +811,37 @@ function MapaPostesConteudo() {
                 ))}
               </div>
             )}
-            <Button
-              type="button"
-              variant={mostrarDensidade ? "default" : "outline"}
-              size="sm"
-              onClick={() => setMostrarDensidade((atual) => !atual)}
-            >
-              <Flame className="h-4 w-4" />
-              Densidade
-            </Button>
-            <Button
-              type="button"
-              variant={mostrarAcoes ? "default" : "outline"}
-              size="sm"
-              onClick={() => setMostrarAcoes((atual) => !atual)}
-            >
-              <Layers className="h-4 w-4" />
-              Ações{mostrarAcoes && acoesComBounds.length > 0 ? ` (${acoesComBounds.length})` : ""}
-            </Button>
-            <Button
-              type="button"
-              variant={colorirPorSaturacao ? "default" : "outline"}
-              size="sm"
-              onClick={() => setColorirPorSaturacao((atual) => !atual)}
-            >
-              <Gauge className="h-4 w-4" />
-              Saturação
-            </Button>
+            {camada === "parque" && (
+              <>
+                <Button
+                  type="button"
+                  variant={mostrarDensidade ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setMostrarDensidade((atual) => !atual)}
+                >
+                  <Flame className="h-4 w-4" />
+                  Densidade
+                </Button>
+                <Button
+                  type="button"
+                  variant={mostrarAcoes ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setMostrarAcoes((atual) => !atual)}
+                >
+                  <Layers className="h-4 w-4" />
+                  Ações{mostrarAcoes && acoesComBounds.length > 0 ? ` (${acoesComBounds.length})` : ""}
+                </Button>
+                <Button
+                  type="button"
+                  variant={colorirPorSaturacao ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setColorirPorSaturacao((atual) => !atual)}
+                >
+                  <Gauge className="h-4 w-4" />
+                  Saturação
+                </Button>
+              </>
+            )}
             {modoSelecao && (
               <span className="text-xs text-slate-500">{DICA_FORMA_SELECAO[formaSelecao]}</span>
             )}
@@ -577,7 +889,7 @@ function MapaPostesConteudo() {
             </div>
           )}
 
-          {selecaoArea && (
+          {selecaoArea && camada === "parque" && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
               <span>
                 <strong>{selecaoArea.postes.length.toLocaleString("pt-BR")}</strong> postes selecionados na área.
@@ -592,22 +904,46 @@ function MapaPostesConteudo() {
               </div>
             </div>
           )}
+          {selecaoArea && camada === "base" && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <span>
+                <strong>
+                  {selecaoArea.postes.filter((p) => p.TEM_OCUPACAO_IDENTIFICADA === "N").length.toLocaleString("pt-BR")}
+                </strong>{" "}
+                poste(s) sem provedor visíveis na área.
+              </span>
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" onClick={gerarFiscalizacaoBase} disabled={gerandoFiscalizacao}>
+                  {gerandoFiscalizacao ? "Gerando..." : "Gerar fiscalização"}
+                </Button>
+                <Button type="button" variant="ghost" size="icon-sm" onClick={() => setSelecaoArea(null)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
 
           <div className="relative h-[70vh] w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm">
             <MapaMapLibre
               postes={postes}
               onMudarViewport={agendarCarga}
-              onSelecionarPoste={setPosteSelecionado}
+              onSelecionarPoste={(poste) => {
+                if (camada === "base") {
+                  setBasePosteSel(basePorBarramento[poste.BARRAMENTO] ?? null)
+                } else {
+                  setPosteSelecionado(poste)
+                }
+              }}
               corOperadoraSelecionada={
-                idsOperadoras.length === 1
+                camada === "parque" && idsOperadoras.length === 1
                   ? coresOperadoras[idsOperadoras[0]] ?? corPadraoOperadora(idsOperadoras[0])
                   : null
               }
-              colorirPorSaturacao={colorirPorSaturacao}
+              colorirPorSaturacao={camada === "parque" && colorirPorSaturacao}
               modoSelecao={modoSelecao}
               formaSelecao={formaSelecao}
               onSelecionarArea={(bounds, postesNaArea) => setSelecaoArea({ bounds, postes: postesNaArea })}
-              mostrarDensidade={mostrarDensidade}
+              mostrarDensidade={camada === "base" ? baseAgregar : mostrarDensidade}
               celulasDensidade={celulasDensidade}
               vooPara={vooPara}
               acoes={acoesComBounds}
@@ -627,6 +963,100 @@ function MapaPostesConteudo() {
                 abrirAcaoPoste(poste, tipo)
               }}
             />
+
+            {camada === "base" && basePosteSel && (
+              <div className="absolute inset-y-0 right-0 z-[1000] flex w-full flex-col border-l border-slate-200 bg-white shadow-xl sm:w-[360px]">
+                <div className="flex items-start justify-between gap-2 border-b border-slate-100 p-4">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-semibold text-slate-900">
+                      Poste {basePosteSel.DE_BARRAMENTO}
+                    </h2>
+                    <p className="text-xs text-slate-500">
+                      NU_PG_ID {basePosteSel.NU_PG_ID} · {basePosteSel.LOCALIDADE ?? "—"} · {basePosteSel.MUNICIPIO ?? "—"}
+                    </p>
+                  </div>
+                  <Button type="button" variant="ghost" size="icon-sm" onClick={() => setBasePosteSel(null)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4">
+                  {basePosteSel.PROVEDORES.length === 0 ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+                        <AlertTriangle className="h-4 w-4" />
+                        Sem provedor associado
+                      </p>
+                      <p className="mt-1 text-xs text-amber-700">
+                        Nenhuma ocupação de terceiro identificada neste poste. Candidato a fiscalização.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="mt-3"
+                        disabled={gerandoFiscalizacao}
+                        onClick={() => {
+                          setSelecaoArea({
+                            bounds: {
+                              min_x: basePosteSel.NU_LONGITUDE - 0.0003,
+                              max_x: basePosteSel.NU_LONGITUDE + 0.0003,
+                              min_y: basePosteSel.NU_LATITUDE - 0.0003,
+                              max_y: basePosteSel.NU_LATITUDE + 0.0003,
+                            },
+                            postes: [
+                              {
+                                BARRAMENTO: basePosteSel.DE_BARRAMENTO,
+                                X: basePosteSel.NU_LONGITUDE,
+                                Y: basePosteSel.NU_LATITUDE,
+                                TEM_OCUPACAO_IDENTIFICADA: "N",
+                              },
+                            ],
+                          })
+                          gerarFiscalizacaoBase()
+                        }}
+                      >
+                        Gerar fiscalização deste poste
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Provedores alocados ({basePosteSel.PROVEDORES.length})
+                      </p>
+                      <ul className="mt-2 space-y-2">
+                        {basePosteSel.PROVEDORES.map((prov, i) => (
+                          <li
+                            key={`${prov.CNPJ ?? prov.RAZAO_SOCIAL ?? i}`}
+                            className="flex items-start gap-2 rounded-lg border border-slate-200 p-2.5"
+                          >
+                            <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-800">
+                                {prov.RAZAO_SOCIAL ?? "Operadora não identificada"}
+                              </p>
+                              {prov.CNPJ && <p className="font-mono text-xs text-slate-400">{prov.CNPJ}</p>}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+
+                  <dl className="mt-4 space-y-1.5 border-t border-slate-100 pt-3 text-xs text-slate-600">
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-400">Coordenadas</dt>
+                      <dd className="font-mono">
+                        {basePosteSel.NU_LATITUDE.toFixed(6)}, {basePosteSel.NU_LONGITUDE.toFixed(6)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-slate-400">Atualizado em</dt>
+                      <dd>{formatarDataCurta(basePosteSel.DATA_ATUALIZACAO)}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            )}
 
             {acaoSelecionada && (
               <div className="absolute left-3 top-3 z-[1000] w-[300px] rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
