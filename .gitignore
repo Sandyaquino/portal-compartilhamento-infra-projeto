@@ -1,0 +1,29 @@
+# Next.js
+node_modules/
+.next/
+dist/
+build/
+
+# Python
+venv/
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Arquivos grandes
+*.zip
+*.rar
+*.7z
+*.exe
+
+# Dados
+POS*ES_CLB/
+
+# Sistema
+.DS_Store
+Thumb*.db

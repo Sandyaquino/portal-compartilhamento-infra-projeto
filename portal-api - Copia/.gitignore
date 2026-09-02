@@ -1,0 +1,17 @@
+# dependências / ambiente virtual
+venv/
+__pycache__/
+*.pyc
+
+# credenciais — nunca commitar
+.env
+.env.*
+
+# testes
+.pytest_cache/
+.coverage
+htmlcov/
+
+# dados/planilhas locais usadas nos scripts de importação
+*.xlsx
+*.xls

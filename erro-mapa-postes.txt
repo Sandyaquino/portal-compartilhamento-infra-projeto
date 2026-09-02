@@ -1,0 +1,20 @@
+## Error Type
+Runtime TypeError
+
+## Error Message
+Cannot read properties of undefined (reading 'toLocaleString')
+
+
+    at MapaPostesConteudo (app/(app)/mapa-postes/page.tsx:429:51)
+    at MapaPostesPage (app/(app)/mapa-postes/page.tsx:74:7)
+
+## Code Frame
+  427 |         <KpiCard
+  428 |           title="Esgotados"
+> 429 |           value={resumo ? resumo.postes_esgotados.toLocaleString("pt-BR") : "…"}
+      |                                                   ^
+  430 |           subtitle={resumo ? `${resumo.postes_sobrecarga.toLocaleString("pt-BR")} em sobrecarga` : "Carregando..."}
+  431 |           icon={AlertTriangle}
+  432 |           color="text-red-600"
+
+Next.js version: 16.3.3 (Turbopack)
