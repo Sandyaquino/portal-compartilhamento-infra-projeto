@@ -91,6 +91,74 @@ for (const poste of postes) {
   poste.PONTOS_OCUPADOS = Math.max(nOcupacoes, Math.round(poste.CAPACIDADE * aleatorio(0.15, 1.25)))
 }
 
+// =====================================================
+// Base de Postes Coelba (cadastro de ativos - espelha
+// sql/PORTAL_COMPARTILHAMENTO_BASE_POSTE.sql). E a base MESTRE: muito
+// maior que `postes` (que e so o parque com ocupacao mapeada). Aqui geramos
+// alguns milhares distribuidos por municipio/localidade; ~15% reaproveitam
+// um DE_BARRAMENTO que ja tem ocupacao com operadora (= "com provedor").
+// =====================================================
+const MUNICIPIOS_BASE = [
+  { nome: "SALVADOR", centro: { lat: -12.98, lng: -38.48 } },
+  { nome: "FEIRA DE SANTANA", centro: { lat: -12.27, lng: -38.96 } },
+  { nome: "CAMACARI", centro: { lat: -12.70, lng: -38.32 } },
+  { nome: "PORTO SEGURO", centro: { lat: -16.45, lng: -39.09 } },
+  { nome: "ILHEUS", centro: { lat: -14.79, lng: -39.05 } },
+]
+const NOMES_LOCALIDADE = [
+  "Centro", "Parque Industrial", "Zona Norte", "Litoral", "Distrito Rural",
+  "Bairro Novo", "Cidade Alta", "Beira Rio",
+]
+
+const basePostes = []
+const baseLocalidades = []
+let nuLocalidadeSeq = 30900000
+let nuPgSeq = 100000000
+
+// barramentos ja com operadora resolvida - alguns postes da base vao reusa-los
+const barramentosComOperadora = [...new Set(ocupacoes.filter((o) => o._idOperadora).map((o) => o.BARRAMENTO))]
+let idxBarramentoComOp = 0
+
+for (const mun of MUNICIPIOS_BASE) {
+  const qtdLoc = 4 + Math.floor(Math.random() * 3) // 4..6 localidades
+  for (let l = 0; l < qtdLoc; l++) {
+    const nuLocalidadeId = (nuLocalidadeSeq += 1000)
+    const nome = `${NOMES_LOCALIDADE[l % NOMES_LOCALIDADE.length]} ${l + 1}`
+    const centroLoc = {
+      lat: mun.centro.lat + aleatorio(-0.06, 0.06),
+      lng: mun.centro.lng + aleatorio(-0.06, 0.06),
+    }
+    baseLocalidades.push({ NU_LOCALIDADE_ID: nuLocalidadeId, LOCALIDADE: nome, MUNICIPIO: mun.nome, _centro: centroLoc })
+
+    const qtdPostes = 180 + Math.floor(Math.random() * 240) // 180..420 por localidade
+    for (let p = 0; p < qtdPostes; p++) {
+      const reusaComOp = Math.random() < 0.15 && barramentosComOperadora.length > 0
+      const deBarramento = reusaComOp
+        ? barramentosComOperadora[idxBarramentoComOp++ % barramentosComOperadora.length]
+        : `${Math.random() < 0.5 ? "T" : "L"}${String(100000 + Math.floor(Math.random() * 899999))}`
+      basePostes.push({
+        NU_PG_ID: ++nuPgSeq,
+        NU_LOCALIDADE_ID: nuLocalidadeId,
+        LOCALIDADE: nome,
+        DE_BARRAMENTO: deBarramento,
+        MUNICIPIO: mun.nome,
+        UF: "BA",
+        NU_LATITUDE: Number((centroLoc.lat + aleatorio(-0.018, 0.018)).toFixed(8)),
+        NU_LONGITUDE: Number((centroLoc.lng + aleatorio(-0.018, 0.018)).toFixed(8)),
+        DATA_ATUALIZACAO: new Date(Date.now() - Math.floor(Math.random() * 180) * 86400000).toISOString(),
+        CARGA_ID: "CARGA-2026-001",
+        ATIVO: "S",
+      })
+    }
+  }
+}
+
+// Índice: barramento -> tem operadora resolvida?
+const barramentosResolvidos = new Set(barramentosComOperadora)
+function basePosteTemProvedor(deBarramento) {
+  return barramentosResolvidos.has(deBarramento)
+}
+
 let proximoIdAcao = 1
 const acoes = []
 
@@ -1268,6 +1336,10 @@ module.exports = {
   acoes,
   novaAcao,
   analistas,
+  // base de postes Coelba (cadastro de ativos)
+  basePostes,
+  baseLocalidades,
+  basePosteTemProvedor,
   // etapas
   etapas,
   etapaPorId,
