@@ -43,7 +43,6 @@ import {
   type VinculoBasePoste,
 } from "@/lib/types/base-postes"
 
-type Camada = "parque" | "base"
 const VINCULOS_BASE: VinculoBasePoste[] = ["todos", "sem_provedor", "com_provedor"]
 
 const MapaMapLibre = dynamic(() => import("@/components/mapa-postes/mapa-maplibre"), {
@@ -128,10 +127,14 @@ function MapaPostesConteudo() {
   const [buscaBarramento, setBuscaBarramento] = useState("")
   const [posteDestaque, setPosteDestaque] = useState<PosteMapa | null>(null)
 
-  // Camada "Base de Postes Coelba" (cadastro de ativos). Ao aprofundar numa
-  // localidade, mostra os postes da base e os provedores alocados em cada um,
-  // deixando claro os que não têm provedor associado.
-  const [camada, setCamada] = useState<Camada>("parque")
+  // Camadas do mapa — independentes, podem ficar ligadas ao mesmo tempo
+  // (a exibição é a UNIÃO das duas):
+  //  - "parque": postes com ocupação mapeada (operadoras, saturação)
+  //  - "base"  : Base de Postes Coelba (cadastro de ativos); ao aprofundar
+  //             numa localidade mostra cada poste e os provedores alocados,
+  //             deixando claro os que não têm provedor associado.
+  const [mostrarParque, setMostrarParque] = useState(true)
+  const [mostrarBase, setMostrarBase] = useState(false)
   const [baseResumo, setBaseResumo] = useState<ResumoBasePostes | null>(null)
   const [baseMunicipios, setBaseMunicipios] = useState<BaseMunicipio[]>([])
   const [baseLocalidades, setBaseLocalidades] = useState<BaseLocalidade[]>([])
@@ -141,6 +144,8 @@ function MapaPostesConteudo() {
   const [baseAgregar, setBaseAgregar] = useState(true)
   const [baseTruncado, setBaseTruncado] = useState(false)
   const [baseTotalSelecao, setBaseTotalSelecao] = useState(0)
+  const [basePostesMapa, setBasePostesMapa] = useState<PosteMapa[]>([])
+  const [baseCelulas, setBaseCelulas] = useState<CelulaDensidade[]>([])
   const [basePorBarramento, setBasePorBarramento] = useState<Record<string, BasePosteMapa>>({})
   const [basePosteSel, setBasePosteSel] = useState<BasePosteMapa | null>(null)
   const [gerandoFiscalizacao, setGerandoFiscalizacao] = useState(false)
@@ -365,7 +370,7 @@ function MapaPostesConteudo() {
         setBaseAgregar(Boolean(dados.agregar))
 
         if (dados.agregar) {
-          setPostes([])
+          setBasePostesMapa([])
           setBasePorBarramento({})
           if (bounds) {
             const pd = new URLSearchParams({
@@ -378,12 +383,12 @@ function MapaPostesConteudo() {
             })
             if (mun) pd.set("municipio", mun)
             const rd = await fetch(`${API_BASE_URL}/api/base-postes/densidade?${pd.toString()}`, { cache: "no-store" })
-            setCelulasDensidade(rd.ok ? (await rd.json()).celulas ?? [] : [])
+            setBaseCelulas(rd.ok ? (await rd.json()).celulas ?? [] : [])
           } else {
-            setCelulasDensidade([])
+            setBaseCelulas([])
           }
         } else {
-          setCelulasDensidade([])
+          setBaseCelulas([])
           const indice: Record<string, BasePosteMapa> = {}
           const paraMapa: PosteMapa[] = (dados.postes ?? []).map((bp) => {
             indice[bp.DE_BARRAMENTO] = bp
@@ -395,7 +400,7 @@ function MapaPostesConteudo() {
             }
           })
           setBasePorBarramento(indice)
-          setPostes(paraMapa)
+          setBasePostesMapa(paraMapa)
         }
       } catch (error) {
         setNotification({
@@ -412,39 +417,38 @@ function MapaPostesConteudo() {
   function agendarCarga(bounds: ViewportBounds) {
     viewportAtualRef.current = bounds
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (camada === "base") {
-      const mun = baseMunicipio
-      const loc = baseLocalidade
-      const vinc = baseVinculo
-      debounceRef.current = setTimeout(() => carregarBase(bounds, mun, loc, vinc), DEBOUNCE_MS)
-      return
-    }
+    const mun = baseMunicipio
+    const loc = baseLocalidade
+    const vinc = baseVinculo
     debounceRef.current = setTimeout(() => {
-      carregarPostes(bounds, idsOperadoras, status, saturacao)
-      if (mostrarDensidade) carregarDensidade(bounds, idsOperadoras, status, saturacao)
+      if (mostrarParque) {
+        carregarPostes(bounds, idsOperadoras, status, saturacao)
+        if (mostrarDensidade) carregarDensidade(bounds, idsOperadoras, status, saturacao)
+      }
+      if (mostrarBase) carregarBase(bounds, mun, loc, vinc)
     }, DEBOUNCE_MS)
   }
 
-  // Refaz a busca quando o filtro muda, reaproveitando o ultimo viewport conhecido.
+  // Refaz a busca do parque quando o filtro muda, reaproveitando o viewport.
   useEffect(() => {
-    if (camada === "base") return
-    if (viewportAtualRef.current) {
-      carregarPostes(viewportAtualRef.current, idsOperadoras, status, saturacao)
-      if (mostrarDensidade) carregarDensidade(viewportAtualRef.current, idsOperadoras, status, saturacao)
-    }
+    if (!mostrarParque || !viewportAtualRef.current) return
+    carregarPostes(viewportAtualRef.current, idsOperadoras, status, saturacao)
+    if (mostrarDensidade) carregarDensidade(viewportAtualRef.current, idsOperadoras, status, saturacao)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idsOperadoras, status, saturacao])
+  }, [idsOperadoras, status, saturacao, mostrarParque])
 
-  // Camada Base: carrega ao trocar de camada / município / localidade / vínculo.
+  // Camada Base: (re)carrega ao ligar / trocar município / localidade / vínculo.
+  // (Não precisa limpar ao desligar: `postesNoMapa`/`celulasNoMapa` já ignoram
+  // a base quando `mostrarBase` é falso.)
   useEffect(() => {
-    if (camada !== "base") return
+    if (!mostrarBase) return
     carregarBase(viewportAtualRef.current, baseMunicipio, baseLocalidade, baseVinculo)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camada, baseMunicipio, baseLocalidade, baseVinculo])
+  }, [mostrarBase, baseMunicipio, baseLocalidade, baseVinculo])
 
   // Carga inicial da camada Base (resumo + municípios), uma vez.
   useEffect(() => {
-    if (camada !== "base" || baseMunicipios.length > 0) return
+    if (!mostrarBase || baseMunicipios.length > 0) return
     fetch(`${API_BASE_URL}/api/base-postes/resumo`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then(setBaseResumo)
@@ -453,7 +457,27 @@ function MapaPostesConteudo() {
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => setBaseMunicipios(Array.isArray(d) ? d : []))
       .catch(() => setBaseMunicipios([]))
-  }, [camada, baseMunicipios.length])
+  }, [mostrarBase, baseMunicipios.length])
+
+  // Exibição do mapa = UNIÃO das duas camadas (dedupe por barramento; a
+  // entrada do parque prevalece por ter saturação/capacidade).
+  const postesParque = mostrarParque ? postes : []
+  const postesNoMapa = mostrarBase
+    ? (() => {
+        const doParque = new Set(postesParque.map((p) => p.BARRAMENTO))
+        return [...postesParque, ...basePostesMapa.filter((p) => !doParque.has(p.BARRAMENTO))]
+      })()
+    : postesParque
+
+  // Densidade: a do parque quando ligada; senão a da base (quando o parque
+  // não está desenhando pontos, pra os overlays não brigarem pelo canvas).
+  const densidadeAtiva = mostrarParque && mostrarDensidade
+  const celulasNoMapa = densidadeAtiva
+    ? celulasDensidade
+    : mostrarBase && baseAgregar && !mostrarParque
+      ? baseCelulas
+      : []
+  const mostrarDensidadeMapa = densidadeAtiva || (mostrarBase && baseAgregar && !mostrarParque)
 
   // Localidades do município escolhido + voo até a área.
   useEffect(() => {
@@ -583,12 +607,14 @@ function MapaPostesConteudo() {
         breadcrumbs={[{ label: "Início", href: "/" }, { label: "Mapa de Postes" }]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
+            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-1.5 py-1 text-xs">
+              <span className="pl-1 font-medium text-slate-400">Camadas:</span>
               <button
                 type="button"
-                onClick={() => setCamada("parque")}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                  camada === "parque" ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100"
+                aria-pressed={mostrarParque}
+                onClick={() => setMostrarParque((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-medium transition ${
+                  mostrarParque ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100"
                 }`}
               >
                 <Layers className="h-3.5 w-3.5" />
@@ -596,9 +622,10 @@ function MapaPostesConteudo() {
               </button>
               <button
                 type="button"
-                onClick={() => setCamada("base")}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
-                  camada === "base" ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100"
+                aria-pressed={mostrarBase}
+                onClick={() => setMostrarBase((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 font-medium transition ${
+                  mostrarBase ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100"
                 }`}
               >
                 <Database className="h-3.5 w-3.5" />
@@ -616,7 +643,7 @@ function MapaPostesConteudo() {
 
       <NotificationBanner notification={notification} />
 
-      {camada === "base" ? (
+      {mostrarBase && !mostrarParque ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
             title="Postes na base"
@@ -685,7 +712,7 @@ function MapaPostesConteudo() {
       )}
 
       <div className="flex flex-col gap-4 md:flex-row">
-        {camada === "parque" && (
+        {mostrarParque && (
           <FiltroSidebar
             operadoras={operadoras}
             idsOperadoras={idsOperadoras}
@@ -701,7 +728,7 @@ function MapaPostesConteudo() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {camada === "base" && (
+          {mostrarBase && (
             <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
               <select
                 value={baseMunicipio}
@@ -753,19 +780,19 @@ function MapaPostesConteudo() {
             </div>
           )}
 
-          {camada === "parque" && idsOperadoras.length === 0 && (
+          {mostrarParque && idsOperadoras.length === 0 && (
             <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
               <MapPin className="h-4 w-4 shrink-0" />
               Selecione ao menos uma operadora para ver os postes no mapa.
             </div>
           )}
-          {camada === "parque" && truncado && (
+          {mostrarParque && truncado && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
               <AlertTriangle className="h-4 w-4 shrink-0" />
               Muitos postes nesta área — mostrando só uma parte. Dê zoom para ver os pontos individuais.
             </div>
           )}
-          {camada === "base" && (baseAgregar || baseTruncado) && (
+          {mostrarBase && (baseAgregar || baseTruncado) && (
             <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
               <Info className="h-4 w-4 shrink-0" />
               {baseAgregar
@@ -811,7 +838,7 @@ function MapaPostesConteudo() {
                 ))}
               </div>
             )}
-            {camada === "parque" && (
+            {mostrarParque && (
               <>
                 <Button
                   type="button"
@@ -889,7 +916,7 @@ function MapaPostesConteudo() {
             </div>
           )}
 
-          {selecaoArea && camada === "parque" && (
+          {selecaoArea && mostrarParque && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
               <span>
                 <strong>{selecaoArea.postes.length.toLocaleString("pt-BR")}</strong> postes selecionados na área.
@@ -904,7 +931,7 @@ function MapaPostesConteudo() {
               </div>
             </div>
           )}
-          {selecaoArea && camada === "base" && (
+          {selecaoArea && mostrarBase && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
               <span>
                 <strong>
@@ -925,26 +952,27 @@ function MapaPostesConteudo() {
 
           <div className="relative h-[70vh] w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm">
             <MapaMapLibre
-              postes={postes}
+              postes={postesNoMapa}
               onMudarViewport={agendarCarga}
               onSelecionarPoste={(poste) => {
-                if (camada === "base") {
-                  setBasePosteSel(basePorBarramento[poste.BARRAMENTO] ?? null)
+                const naBase = basePorBarramento[poste.BARRAMENTO]
+                if (naBase) {
+                  setBasePosteSel(naBase)
                 } else {
                   setPosteSelecionado(poste)
                 }
               }}
               corOperadoraSelecionada={
-                camada === "parque" && idsOperadoras.length === 1
+                mostrarParque && idsOperadoras.length === 1
                   ? coresOperadoras[idsOperadoras[0]] ?? corPadraoOperadora(idsOperadoras[0])
                   : null
               }
-              colorirPorSaturacao={camada === "parque" && colorirPorSaturacao}
+              colorirPorSaturacao={mostrarParque && colorirPorSaturacao}
               modoSelecao={modoSelecao}
               formaSelecao={formaSelecao}
               onSelecionarArea={(bounds, postesNaArea) => setSelecaoArea({ bounds, postes: postesNaArea })}
-              mostrarDensidade={camada === "base" ? baseAgregar : mostrarDensidade}
-              celulasDensidade={celulasDensidade}
+              mostrarDensidade={mostrarDensidadeMapa}
+              celulasDensidade={celulasNoMapa}
               vooPara={vooPara}
               acoes={acoesComBounds}
               onSelecionarAcao={selecionarAcao}
@@ -964,7 +992,7 @@ function MapaPostesConteudo() {
               }}
             />
 
-            {camada === "base" && basePosteSel && (
+            {basePosteSel && (
               <div className="absolute inset-y-0 right-0 z-[1000] flex w-full flex-col border-l border-slate-200 bg-white shadow-xl sm:w-[360px]">
                 <div className="flex items-start justify-between gap-2 border-b border-slate-100 p-4">
                   <div className="min-w-0">
