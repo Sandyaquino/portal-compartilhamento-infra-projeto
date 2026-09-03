@@ -479,6 +479,45 @@ let seqCarteiraOS = 0
 const carteiras = []
 const carteiraOS = []
 
+// ------------------------------------------------------------------
+// Duplicidade: postes desta carteira que já estão em outra carteira
+// já registrada na base (qualquer status). `excluirId` = a própria
+// carteira, quando estamos regerando.
+// ------------------------------------------------------------------
+function conflitosDuplicidade(osLista, excluirId) {
+  const alvo = new Set(osLista.map((o) => o.DE_BARRAMENTO))
+  const porCarteira = new Map() // id -> Set<barramento>
+  for (const o of carteiraOS) {
+    if (excluirId != null && o.ID_CARTEIRA === Number(excluirId)) continue
+    if (!alvo.has(o.DE_BARRAMENTO)) continue
+    if (!porCarteira.has(o.ID_CARTEIRA)) porCarteira.set(o.ID_CARTEIRA, new Set())
+    porCarteira.get(o.ID_CARTEIRA).add(o.DE_BARRAMENTO)
+  }
+  const repetidos = new Set()
+  const lista = []
+  for (const [idc, set] of porCarteira) {
+    const c = carteiras.find((x) => x.ID_CARTEIRA === idc)
+    if (!c) continue
+    set.forEach((b) => repetidos.add(b))
+    lista.push({
+      id_carteira: idc,
+      titulo: c.TITULO,
+      status: c.STATUS,
+      data_inicio: c.DATA_INICIO,
+      data_fim: c.DATA_FIM,
+      qtd_postes: set.size,
+    })
+  }
+  lista.sort((a, b) => String(b.data_inicio).localeCompare(String(a.data_inicio)))
+  return {
+    tem_conflito: repetidos.size > 0,
+    total_postes: repetidos.size,
+    total_carteiras: lista.length,
+    carteiras: lista,
+    ultima: lista[0] || null,
+  }
+}
+
 function registrar(router) {
   router.get("/api/carteira/estrategias", (req, res) => enviarJson(res, 200, ESTRATEGIAS))
 
@@ -516,7 +555,8 @@ function registrar(router) {
   })
 
   router.post("/api/carteira/preview", async (req, res, ctx) => {
-    const r = montarCarteira(ctx.body || {})
+    const corpo = ctx.body || {}
+    const r = montarCarteira(corpo)
     if (r.erro) return erroDetalhe(res, 400, r.erro)
     enviarJson(res, 200, {
       carteira: r.cabecalho,
@@ -524,6 +564,7 @@ function registrar(router) {
       resumo: r.resumo,
       por_dia: r.por_dia,
       por_equipe: r.por_equipe,
+      duplicidade: conflitosDuplicidade(r.os, corpo.id_carteira),
     })
   })
 
@@ -541,6 +582,15 @@ function registrar(router) {
     const corpo = ctx.body || {}
     const r = montarCarteira(corpo)
     if (r.erro) return erroDetalhe(res, 400, r.erro)
+
+    const dup = conflitosDuplicidade(r.os, null)
+    if (dup.tem_conflito && corpo.forcar !== true) {
+      return enviarJson(res, 409, {
+        erro_duplicidade: true,
+        detail: `${dup.total_postes} poste(s) já estão em ${dup.total_carteiras} outra(s) carteira(s).`,
+        duplicidade: dup,
+      })
+    }
 
     const id = ++seqCarteira
     const carteira = {
@@ -562,6 +612,7 @@ function registrar(router) {
       resumo: r.resumo,
       por_dia: r.por_dia,
       por_equipe: r.por_equipe,
+      duplicidade: dup,
     })
   })
 
@@ -576,6 +627,15 @@ function registrar(router) {
     const corpo = ctx.body || {}
     const r = montarCarteira(corpo)
     if (r.erro) return erroDetalhe(res, 400, r.erro)
+
+    const dup = conflitosDuplicidade(r.os, id)
+    if (dup.tem_conflito && corpo.forcar !== true) {
+      return enviarJson(res, 409, {
+        erro_duplicidade: true,
+        detail: `${dup.total_postes} poste(s) já estão em ${dup.total_carteiras} outra(s) carteira(s).`,
+        duplicidade: dup,
+      })
+    }
 
     Object.assign(carteira, r.cabecalho, {
       ID_CARTEIRA: id,
@@ -596,6 +656,7 @@ function registrar(router) {
       resumo: r.resumo,
       por_dia: r.por_dia,
       por_equipe: r.por_equipe,
+      duplicidade: dup,
     })
   })
 

@@ -126,6 +126,23 @@ export type CriteriosCarteira = {
   params?: Record<string, number>
 }
 
+// Sobreposição de postes com outras carteiras já registradas na base.
+export type CarteiraConflito = {
+  id_carteira: number
+  titulo: string
+  status: StatusCarteira
+  data_inicio: string
+  data_fim: string
+  qtd_postes: number
+}
+export type DuplicidadeCarteira = {
+  tem_conflito: boolean
+  total_postes: number
+  total_carteiras: number
+  carteiras: CarteiraConflito[]
+  ultima: CarteiraConflito | null
+}
+
 export type ResumoCarteira = {
   qtd_os: number
   qtd_dias: number
@@ -175,4 +192,8 @@ export type GerarCarteiraPayload = {
   barramentos?: string[]
   params?: Record<string, number>
   usuario?: string | null
+  // ID da carteira sendo regerada (para ignorar ela mesma na checagem de duplicidade).
+  id_carteira?: number
+  // Prossegue mesmo com postes já presentes em outras carteiras.
+  forcar?: boolean
 }

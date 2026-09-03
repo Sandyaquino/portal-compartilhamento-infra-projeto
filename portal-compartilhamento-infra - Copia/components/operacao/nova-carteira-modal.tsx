@@ -22,8 +22,10 @@ import { API_BASE_URL } from "@/lib/config"
 import { useCurrentUser } from "@/hooks/use-current-user"
 import {
   LABEL_FREQUENCIA,
+  LABEL_STATUS_CARTEIRA,
   type AreaMunicipio,
   type CriteriosCarteira,
+  type DuplicidadeCarteira,
   type EpsCarteira,
   type EquipeCampo,
   type EstrategiaCarteira,
@@ -33,6 +35,12 @@ import {
   type DiaCarteira,
   type EquipeCarteira,
 } from "@/lib/types/carteira"
+
+function fmtData(v?: string | null) {
+  if (!v) return "—"
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleDateString("pt-BR")
+}
 
 type Props = {
   open: boolean
@@ -47,6 +55,7 @@ type PreviewResp = {
   resumo: ResumoCarteira
   por_dia: DiaCarteira[]
   por_equipe: EquipeCarteira[]
+  duplicidade: DuplicidadeCarteira | null
 }
 
 const HOJE = new Date().toISOString().slice(0, 10)
@@ -77,6 +86,8 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
   const [carregandoPreview, setCarregandoPreview] = useState(false)
   const [gerando, setGerando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Sobreposição detectada com outras carteiras — abre a janela de confirmação.
+  const [conflito, setConflito] = useState<DuplicidadeCarteira | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -95,6 +106,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
     setPassoMapa(false)
     setPreview(null)
     setErro(null)
+    setConflito(null)
 
     const get = (url: string) => fetch(`${API_BASE_URL}${url}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : []))
     Promise.all([
@@ -143,7 +155,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
     return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]
   }
 
-  function montarPayload(): GerarCarteiraPayload {
+  function montarPayload(forcar = false): GerarCarteiraPayload {
     return {
       titulo: titulo.trim() || undefined,
       frequencia,
@@ -157,10 +169,12 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
       localidades,
       barramentos: modo === "MANUAL" ? barramentosLista : undefined,
       usuario: user?.login ?? null,
+      id_carteira: inicial?.id_carteira,
+      forcar,
     }
   }
 
-  async function chamar(rota: "preview" | "gerar") {
+  async function chamar(rota: "preview" | "gerar", forcar = false) {
     const setLoading = rota === "preview" ? setCarregandoPreview : setGerando
     setLoading(true)
     setErro(null)
@@ -174,13 +188,23 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(montarPayload()),
+        body: JSON.stringify(montarPayload(forcar)),
       })
       const dados = await res.json().catch(() => null)
+      if (rota === "gerar" && res.status === 409 && dados?.erro_duplicidade) {
+        setConflito(dados.duplicidade as DuplicidadeCarteira)
+        return
+      }
       if (!res.ok) throw new Error(dados?.detail || "Erro ao processar a carteira")
       if (rota === "preview") {
-        setPreview({ resumo: dados.resumo, por_dia: dados.por_dia, por_equipe: dados.por_equipe })
+        setPreview({
+          resumo: dados.resumo,
+          por_dia: dados.por_dia,
+          por_equipe: dados.por_equipe,
+          duplicidade: dados.duplicidade ?? null,
+        })
       } else {
+        setConflito(null)
         onOpenChange(false)
         onCriada(dados.id_carteira)
       }
@@ -194,6 +218,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
   const podeGerar = idsEquipes.length > 0 && (modo === "MANUAL" ? barramentosLista.length > 0 : municipios.length > 0)
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={`max-h-[95vh] overflow-y-auto ${passoMapa ? "sm:max-w-[94vw]" : "sm:max-w-3xl"}`}>
         <DialogHeader>
@@ -389,6 +414,12 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
                   <span className="text-slate-400"> (a lógica encontrou {preview.resumo.candidatos_estrategia} candidatos; capacidade {preview.resumo.capacidade})</span>
                 )}
               </p>
+              {preview.duplicidade?.tem_conflito && (
+                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800">
+                  Atenção: {preview.duplicidade.total_postes} poste(s) desta seleção já estão em{" "}
+                  {preview.duplicidade.total_carteiras} outra(s) carteira(s). Ao gerar, será pedida confirmação.
+                </p>
+              )}
               <div className="mt-2 grid gap-1 sm:grid-cols-2">
                 <div>
                   <p className="font-medium text-slate-500">Por equipe</p>
@@ -423,5 +454,60 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
         )}
       </DialogContent>
     </Dialog>
+
+    <Dialog open={conflito !== null} onOpenChange={(o) => !gerando && !o && setConflito(null)}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Postes já presentes em outras carteiras</DialogTitle>
+          <DialogDescription>
+            {conflito?.total_postes} poste(s) desta carteira já constam em {conflito?.total_carteiras} outra(s)
+            carteira(s) registrada(s) na base. Verifique antes de prosseguir para evitar visita duplicada.
+          </DialogDescription>
+        </DialogHeader>
+
+        {conflito && (
+          <div className="space-y-2">
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-400">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold">Carteira</th>
+                    <th className="px-3 py-2 text-left font-semibold">Período</th>
+                    <th className="px-3 py-2 text-left font-semibold">Status</th>
+                    <th className="px-3 py-2 text-right font-semibold">Postes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {conflito.carteiras.map((cf) => (
+                    <tr key={cf.id_carteira} className="border-t border-slate-100">
+                      <td className="px-3 py-2 text-slate-700">#{cf.id_carteira} · {cf.titulo}</td>
+                      <td className="px-3 py-2 text-slate-500">{fmtData(cf.data_inicio)} a {fmtData(cf.data_fim)}</td>
+                      <td className="px-3 py-2 text-slate-500">{LABEL_STATUS_CARTEIRA[cf.status]}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-amber-700">{cf.qtd_postes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {conflito.ultima && (
+              <p className="text-xs text-slate-500">
+                Carteira mais recente com sobreposição: <strong>#{conflito.ultima.id_carteira} · {conflito.ultima.titulo}</strong>{" "}
+                ({fmtData(conflito.ultima.data_inicio)} a {fmtData(conflito.ultima.data_fim)}).
+              </p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter className="flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={() => setConflito(null)} disabled={gerando}>
+            Cancelar
+          </Button>
+          <Button type="button" onClick={() => chamar("gerar", true)} disabled={gerando}>
+            {gerando ? "Gerando..." : "Gerar mesmo assim"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

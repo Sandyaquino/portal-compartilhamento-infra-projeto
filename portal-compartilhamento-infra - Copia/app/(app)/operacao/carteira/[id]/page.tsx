@@ -198,7 +198,13 @@ export default function CarteiraDetalhePage() {
       </div>
 
       <SecaoCard titulo="Rota no mapa" descricao="Postes coloridos por equipe; ponto cheio = sem provedor. O export .html traz satélite, camadas e filtro por dia.">
-        <CarteiraMapaPreview os={os} />
+        {modalRegerar ? (
+          <div className="flex h-[420px] items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-400">
+            Mapa oculto enquanto você redefine os critérios.
+          </div>
+        ) : (
+          <CarteiraMapaPreview os={os} />
+        )}
       </SecaoCard>
 
       <SecaoCard titulo="Distribuição" descricao="Como a carteira ficou por dia e por equipe">
