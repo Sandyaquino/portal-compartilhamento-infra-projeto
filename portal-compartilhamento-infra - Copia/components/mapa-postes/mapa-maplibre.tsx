@@ -599,9 +599,14 @@ export default function MapaMapLibre({
 
     marcadoresRef.current = postes.map((poste) => {
       const identificado = poste.TEM_OCUPACAO_IDENTIFICADA === "S"
-      const cor = colorirPorSaturacao
-        ? SATURACAO_INFO[nivelSaturacao(poste.PONTOS_OCUPADOS, poste.CAPACIDADE)].cor
-        : corOperadoraSelecionada ?? (identificado ? "#16A34A" : "#94A3B8")
+      // Postes da Base Coelba não têm capacidade/ocupação; nesse caso a
+      // coloração por saturação (e a cor da operadora) não se aplica -
+      // ficam sempre verde (com provedor) / cinza (sem provedor).
+      const temCapacidade = poste.CAPACIDADE != null && poste.PONTOS_OCUPADOS != null
+      const cor =
+        temCapacidade && colorirPorSaturacao
+          ? SATURACAO_INFO[nivelSaturacao(poste.PONTOS_OCUPADOS, poste.CAPACIDADE)].cor
+          : (temCapacidade ? corOperadoraSelecionada : null) ?? (identificado ? "#16A34A" : "#94A3B8")
       const el = criarElementoMarcador(cor)
       el.title = poste.BARRAMENTO
       el.addEventListener("click", () => onSelecionarPosteRef.current(poste))
