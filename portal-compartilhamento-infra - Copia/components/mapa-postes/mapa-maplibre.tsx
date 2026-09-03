@@ -42,22 +42,47 @@ export type CelulaDensidade = {
 
 // Basemap raster do OSM (mesmos tiles que o Leaflet usava) - evita depender
 // de um provedor de vetor com API key (Mapbox/CARTO) só pra trocar o motor
-// de renderizacao pra WebGL.
+// de renderizacao pra WebGL. Pode ser trocado por NEXT_PUBLIC_MAP_TILES_URL
+// (um template {z}/{x}/{y}) quando a rede bloqueia o tile.openstreetmap.org -
+// se nao houver rede pro basemap, o mapa cai num fundo cinza mas os
+// marcadores continuam funcionando.
+const TILES_BASE: string[] = process.env.NEXT_PUBLIC_MAP_TILES_URL
+  ? [process.env.NEXT_PUBLIC_MAP_TILES_URL]
+  : [
+      "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    ]
+
 const ESTILO_BASE: StyleSpecification = {
   version: 8,
   sources: {
     osm: {
       type: "raster",
-      tiles: [
-        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      ],
+      tiles: TILES_BASE,
       tileSize: 256,
       attribution: "&copy; OpenStreetMap contributors",
     },
   },
-  layers: [{ id: "osm", type: "raster", source: "osm" }],
+  layers: [
+    { id: "fundo", type: "background", paint: { "background-color": "#e8edf1" } },
+    { id: "osm", type: "raster", source: "osm" },
+  ],
+}
+
+// Erros de carregamento de tile do basemap (rede corporativa bloqueando o
+// OSM, offline, etc.) não devem virar erro de console/overlay: o mapa
+// degrada pro fundo cinza e os marcadores continuam. Só deixa passar o que
+// não for falha de tile.
+function ehErroDeTile(evento: unknown): boolean {
+  const err = (evento as { error?: { message?: string; url?: string } })?.error
+  const texto = `${err?.message ?? ""} ${err?.url ?? ""}`.toLowerCase()
+  return (
+    texto.includes("tile.openstreetmap.org") ||
+    texto.includes(".png") ||
+    texto.includes("failed to fetch") ||
+    texto.includes("ajaxerror")
+  )
 }
 
 function criarElementoMarcador(cor: string) {
@@ -208,6 +233,13 @@ export default function MapaMapLibre({
     })
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left")
+
+    // Sem esse listener o MapLibre joga cada tile que falha no console.error
+    // (e o overlay do Next). Silencia falha de basemap; loga o resto.
+    map.on("error", (evento) => {
+      if (ehErroDeTile(evento)) return
+      console.warn("[mapa-maplibre]", (evento as { error?: unknown }).error ?? evento)
+    })
 
     function reportarBounds() {
       const b = map.getBounds()
