@@ -527,6 +527,16 @@ function registrar(router) {
     })
   })
 
+  function paramsJson(corpo) {
+    return JSON.stringify({
+      municipios: corpo.municipios || [],
+      localidades: corpo.localidades || [],
+      params: corpo.params || {},
+      ids_equipes: corpo.ids_equipes || [],
+      barramentos: corpo.barramentos || [],
+    })
+  }
+
   router.post("/api/carteira/gerar", async (req, res, ctx) => {
     const corpo = ctx.body || {}
     const r = montarCarteira(corpo)
@@ -536,12 +546,7 @@ function registrar(router) {
     const carteira = {
       ID_CARTEIRA: id,
       ...r.cabecalho,
-      PARAMETROS_JSON: JSON.stringify({
-        municipios: corpo.municipios || [],
-        localidades: corpo.localidades || [],
-        params: corpo.params || {},
-        ids_equipes: corpo.ids_equipes || [],
-      }),
+      PARAMETROS_JSON: paramsJson(corpo),
       CREATED_AT: new Date().toISOString(),
       CREATED_BY: corpo.usuario || "dev.local",
       UPDATED_AT: new Date().toISOString(),
@@ -551,6 +556,40 @@ function registrar(router) {
       carteiraOS.push({ ID_CARTEIRA_OS: ++seqCarteiraOS, ID_CARTEIRA: id, CREATED_AT: carteira.CREATED_AT, ...o })
     }
     enviarJson(res, 201, {
+      success: true,
+      id_carteira: id,
+      carteira,
+      resumo: r.resumo,
+      por_dia: r.por_dia,
+      por_equipe: r.por_equipe,
+    })
+  })
+
+  // Regera uma carteira RASCUNHO com novos critérios (mesmo ID, troca as OS).
+  router.post("/api/carteira/:id/regerar", async (req, res, ctx) => {
+    const id = Number(ctx.params.id)
+    const carteira = carteiras.find((c) => c.ID_CARTEIRA === id)
+    if (!carteira) return erroDetalhe(res, 404, "Carteira não encontrada")
+    if (carteira.STATUS !== "RASCUNHO") {
+      return erroDetalhe(res, 409, "Só é possível regerar uma carteira em rascunho.")
+    }
+    const corpo = ctx.body || {}
+    const r = montarCarteira(corpo)
+    if (r.erro) return erroDetalhe(res, 400, r.erro)
+
+    Object.assign(carteira, r.cabecalho, {
+      ID_CARTEIRA: id,
+      STATUS: "RASCUNHO",
+      PARAMETROS_JSON: paramsJson(corpo),
+      UPDATED_AT: new Date().toISOString(),
+    })
+    for (let i = carteiraOS.length - 1; i >= 0; i--) {
+      if (carteiraOS[i].ID_CARTEIRA === id) carteiraOS.splice(i, 1)
+    }
+    for (const o of r.os) {
+      carteiraOS.push({ ID_CARTEIRA_OS: ++seqCarteiraOS, ID_CARTEIRA: id, CREATED_AT: carteira.CREATED_AT, ...o })
+    }
+    enviarJson(res, 200, {
       success: true,
       id_carteira: id,
       carteira,

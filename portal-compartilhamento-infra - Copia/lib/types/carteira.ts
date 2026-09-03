@@ -104,8 +104,26 @@ export type Carteira = {
   QTD_OS: number
   QTD_EQUIPES: number
   STATUS: StatusCarteira
+  PARAMETROS_JSON?: string | null
   CREATED_AT?: string
   CREATED_BY?: string
+}
+
+// Prefill do gerador quando se está regerando uma carteira RASCUNHO.
+export type CriteriosCarteira = {
+  id_carteira: number
+  titulo?: string
+  frequencia: FrequenciaCarteira
+  data_inicio: string
+  modo: ModoCarteira
+  estrategia?: string
+  id_eps?: number | null
+  ids_equipes: number[]
+  qtd_postes_dia: number
+  municipios: string[]
+  localidades: number[]
+  barramentos: string[]
+  params?: Record<string, number>
 }
 
 export type ResumoCarteira = {

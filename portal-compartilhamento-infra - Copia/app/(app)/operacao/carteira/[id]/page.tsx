@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
-import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, Map as MapIcon, Trash2 } from "lucide-react"
+import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, Map as MapIcon, SlidersHorizontal, Trash2 } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
+import { NovaCarteiraModal } from "@/components/operacao/nova-carteira-modal"
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ import {
   CLASSE_STATUS_CARTEIRA,
   LABEL_STATUS_CARTEIRA,
   type CarteiraDetalhe,
+  type CriteriosCarteira,
   type StatusCarteira,
 } from "@/lib/types/carteira"
 
@@ -49,6 +51,7 @@ export default function CarteiraDetalhePage() {
   const [notification, setNotification] = useState<Notification | null>(null)
   const [confirmarExclusao, setConfirmarExclusao] = useState(false)
   const [excluindo, setExcluindo] = useState(false)
+  const [modalRegerar, setModalRegerar] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -107,6 +110,36 @@ export default function CarteiraDetalhePage() {
   const { carteira: c, os, resumo, por_dia, por_equipe } = det
   const dias = [...new Set(os.map((o) => o.DATA_PREVISTA))].sort()
 
+  type ParamsCarteira = {
+    ids_equipes?: number[]
+    municipios?: string[]
+    localidades?: number[]
+    barramentos?: string[]
+    params?: Record<string, number>
+  }
+  const parametros: ParamsCarteira = (() => {
+    try {
+      return c.PARAMETROS_JSON ? (JSON.parse(c.PARAMETROS_JSON) as ParamsCarteira) : {}
+    } catch {
+      return {}
+    }
+  })()
+  const criterios: CriteriosCarteira = {
+    id_carteira: c.ID_CARTEIRA,
+    titulo: c.TITULO,
+    frequencia: c.FREQUENCIA,
+    data_inicio: c.DATA_INICIO,
+    modo: c.MODO,
+    estrategia: c.ESTRATEGIA ?? undefined,
+    id_eps: c.ID_EPS,
+    ids_equipes: parametros.ids_equipes ?? [],
+    qtd_postes_dia: c.QTD_POSTES_DIA,
+    municipios: parametros.municipios ?? [],
+    localidades: parametros.localidades ?? [],
+    barramentos: parametros.barramentos ?? [],
+    params: parametros.params ?? {},
+  }
+
   return (
     <div className="mx-auto max-w-[1500px] space-y-5 p-4 md:p-6">
       <PageHeader
@@ -130,9 +163,14 @@ export default function CarteiraDetalhePage() {
               <MapIcon className="h-4 w-4" /> Exportar Mapa (.html)
             </Button>
             {c.STATUS === "RASCUNHO" && (
-              <Button type="button" onClick={() => mudarStatus("PUBLICADA")}>
-                <Download className="h-4 w-4" /> Publicar
-              </Button>
+              <>
+                <Button type="button" variant="outline" onClick={() => setModalRegerar(true)}>
+                  <SlidersHorizontal className="h-4 w-4" /> Redefinir critérios
+                </Button>
+                <Button type="button" onClick={() => mudarStatus("PUBLICADA")}>
+                  <Download className="h-4 w-4" /> Publicar
+                </Button>
+              </>
             )}
             <Button type="button" variant="outline" className="text-red-700" onClick={() => setConfirmarExclusao(true)}>
               <Trash2 className="h-4 w-4" /> Excluir
@@ -249,6 +287,16 @@ export default function CarteiraDetalhePage() {
           })}
         </div>
       </SecaoCard>
+
+      <NovaCarteiraModal
+        open={modalRegerar}
+        onOpenChange={setModalRegerar}
+        onCriada={() => {
+          setModalRegerar(false)
+          carregar()
+        }}
+        inicial={modalRegerar ? criterios : null}
+      />
 
       <Dialog open={confirmarExclusao} onOpenChange={(o) => !excluindo && setConfirmarExclusao(o)}>
         <DialogContent className="sm:max-w-md">

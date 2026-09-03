@@ -23,6 +23,7 @@ import { useCurrentUser } from "@/hooks/use-current-user"
 import {
   LABEL_FREQUENCIA,
   type AreaMunicipio,
+  type CriteriosCarteira,
   type EpsCarteira,
   type EquipeCampo,
   type EstrategiaCarteira,
@@ -37,6 +38,9 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCriada: (idCarteira: number) => void
+  // Quando informado, o gerador abre com esses critérios e o botão passa a
+  // "Regerar" a carteira RASCUNHO de id `inicial.id_carteira`.
+  inicial?: CriteriosCarteira | null
 }
 
 type PreviewResp = {
@@ -47,8 +51,9 @@ type PreviewResp = {
 
 const HOJE = new Date().toISOString().slice(0, 10)
 
-export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
+export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null }: Props) {
   const { user } = useCurrentUser()
+  const regerando = inicial !== null
 
   const [estrategias, setEstrategias] = useState<EstrategiaCarteira[]>([])
   const [epsLista, setEpsLista] = useState<EpsCarteira[]>([])
@@ -76,17 +81,17 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
   useEffect(() => {
     if (!open) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setTitulo("")
-    setFrequencia("SEMANAL")
-    setDataInicio(HOJE)
-    setIdEps(null)
-    setIdsEquipes([])
-    setModo("AUTOMATICA")
-    setEstrategia("VAO_ENTRE_PROVEDORES")
-    setMunicipios([])
-    setLocalidades([])
-    setQtdDia(12)
-    setBarramentosTexto("")
+    setTitulo(inicial?.titulo ?? "")
+    setFrequencia(inicial?.frequencia ?? "SEMANAL")
+    setDataInicio(inicial?.data_inicio ?? HOJE)
+    setIdEps(inicial?.id_eps ?? null)
+    setIdsEquipes(inicial?.ids_equipes ?? [])
+    setModo(inicial?.modo ?? "AUTOMATICA")
+    setEstrategia(inicial?.estrategia ?? "VAO_ENTRE_PROVEDORES")
+    setMunicipios(inicial?.municipios ?? [])
+    setLocalidades(inicial?.localidades ?? [])
+    setQtdDia(inicial?.qtd_postes_dia ?? 12)
+    setBarramentosTexto((inicial?.barramentos ?? []).join("\n"))
     setPassoMapa(false)
     setPreview(null)
     setErro(null)
@@ -101,6 +106,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
       setEpsLista(Array.isArray(eps) ? eps : [])
       setAreas(Array.isArray(a) ? a : [])
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   useEffect(() => {
@@ -159,7 +165,13 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
     setLoading(true)
     setErro(null)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/carteira/${rota}`, {
+      const url =
+        rota === "preview"
+          ? `${API_BASE_URL}/api/carteira/preview`
+          : regerando
+            ? `${API_BASE_URL}/api/carteira/${inicial!.id_carteira}/regerar`
+            : `${API_BASE_URL}/api/carteira/gerar`
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(montarPayload()),
@@ -185,7 +197,13 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={`max-h-[95vh] overflow-y-auto ${passoMapa ? "sm:max-w-[94vw]" : "sm:max-w-3xl"}`}>
         <DialogHeader>
-          <DialogTitle>{passoMapa ? "Selecionar postes no mapa" : "Nova carteira de serviço"}</DialogTitle>
+          <DialogTitle>
+            {passoMapa
+              ? "Selecionar postes no mapa"
+              : regerando
+                ? "Redefinir critérios e regerar"
+                : "Nova carteira de serviço"}
+          </DialogTitle>
           <DialogDescription>
             {passoMapa
               ? "Desenhe áreas ou clique nos postes. Ao concluir, os barramentos voltam para o formulário."
@@ -399,7 +417,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
               {carregandoPreview ? "Calculando..." : "Pré-visualizar"}
             </Button>
             <Button type="button" onClick={() => chamar("gerar")} disabled={!podeGerar || gerando}>
-              {gerando ? "Gerando..." : "Gerar carteira"}
+              {gerando ? "Gerando..." : regerando ? "Regerar carteira" : "Gerar carteira"}
             </Button>
           </DialogFooter>
         )}
