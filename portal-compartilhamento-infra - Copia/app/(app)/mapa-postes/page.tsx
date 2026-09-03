@@ -148,7 +148,6 @@ function MapaPostesConteudo() {
   const [baseCelulas, setBaseCelulas] = useState<CelulaDensidade[]>([])
   const [basePorBarramento, setBasePorBarramento] = useState<Record<string, BasePosteMapa>>({})
   const [basePosteSel, setBasePosteSel] = useState<BasePosteMapa | null>(null)
-  const [gerandoFiscalizacao, setGerandoFiscalizacao] = useState(false)
 
   // Navegação rápida por município - so move o mapa (fitBounds), nao filtra
   // dados: quem filtra os postes continua sendo o viewport, igual sempre foi.
@@ -512,38 +511,6 @@ function MapaPostesConteudo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseLocalidade])
 
-  async function gerarFiscalizacaoBase() {
-    if (!selecaoArea) return
-    setGerandoFiscalizacao(true)
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/base-postes/fiscalizacao`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bounds: selecaoArea.bounds,
-          municipio: baseMunicipio || null,
-          localidade: baseLocalidade || null,
-          criado_por: user?.login ?? null,
-        }),
-      })
-      const dados = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(dados?.detail || "Erro ao gerar a fiscalização")
-      setNotification({
-        type: "success",
-        message: `Fiscalização #${dados.id_acao} criada com ${dados.qtd_postes} poste(s) sem provedor. Abra em Ações do Mapa.`,
-      })
-      setSelecaoArea(null)
-      setModoSelecao(false)
-    } catch (error) {
-      setNotification({
-        type: "error",
-        message: error instanceof Error ? error.message : "Erro ao gerar a fiscalização",
-      })
-    } finally {
-      setGerandoFiscalizacao(false)
-    }
-  }
-
   // Liga/desliga o overlay de densidade sem esperar o próximo movimento do mapa.
   useEffect(() => {
     if (mostrarDensidade && viewportAtualRef.current) {
@@ -562,9 +529,13 @@ function MapaPostesConteudo() {
 
   function abrirAcaoSelecao() {
     if (!selecaoArea || selecaoArea.postes.length === 0) return
+    const semProvedor = selecaoArea.postes.filter((p) => p.TEM_OCUPACAO_IDENTIFICADA === "N").length
     setContextoAcao({
       barramentos: selecaoArea.postes.map((item) => item.BARRAMENTO),
       titulo: `Seleção de área (${selecaoArea.postes.length} postes)`,
+      // Com a camada Base ligada e postes sem provedor na seleção, o caso
+      // mais comum é fiscalizar — já abre o modal nesse tipo.
+      tipoInicial: mostrarBase && semProvedor > 0 ? "FISCALIZACAO" : undefined,
     })
     setModalAcaoAberto(true)
   }
@@ -916,32 +887,24 @@ function MapaPostesConteudo() {
             </div>
           )}
 
-          {selecaoArea && mostrarParque && (
+          {selecaoArea && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
               <span>
-                <strong>{selecaoArea.postes.length.toLocaleString("pt-BR")}</strong> postes selecionados na área.
+                <strong>{selecaoArea.postes.length.toLocaleString("pt-BR")}</strong> postes na área
+                {mostrarBase && (
+                  <>
+                    {" · "}
+                    <strong>
+                      {selecaoArea.postes.filter((p) => p.TEM_OCUPACAO_IDENTIFICADA === "N").length.toLocaleString("pt-BR")}
+                    </strong>{" "}
+                    sem provedor
+                  </>
+                )}
+                .
               </span>
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" onClick={abrirAcaoSelecao} disabled={selecaoArea.postes.length === 0}>
-                  Criar Ação
-                </Button>
-                <Button type="button" variant="ghost" size="icon-sm" onClick={() => setSelecaoArea(null)}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-          {selecaoArea && mostrarBase && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              <span>
-                <strong>
-                  {selecaoArea.postes.filter((p) => p.TEM_OCUPACAO_IDENTIFICADA === "N").length.toLocaleString("pt-BR")}
-                </strong>{" "}
-                poste(s) sem provedor visíveis na área.
-              </span>
-              <div className="flex items-center gap-2">
-                <Button type="button" size="sm" onClick={gerarFiscalizacaoBase} disabled={gerandoFiscalizacao}>
-                  {gerandoFiscalizacao ? "Gerando..." : "Gerar fiscalização"}
+                  Criar ação
                 </Button>
                 <Button type="button" variant="ghost" size="icon-sm" onClick={() => setSelecaoArea(null)}>
                   <X className="h-4 w-4" />
