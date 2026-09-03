@@ -78,6 +78,10 @@ class Router {
     this.add("POST", path, handler)
   }
 
+  put(path, handler) {
+    this.add("PUT", path, handler)
+  }
+
   patch(path, handler) {
     this.add("PATCH", path, handler)
   }

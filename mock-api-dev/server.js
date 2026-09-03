@@ -33,6 +33,7 @@ require("./routes-projetos").registrar(router)
 require("./routes-tarefas").registrar(router)
 require("./routes-base-poste").registrar(router)
 require("./routes-carteira").registrar(router)
+require("./routes-resultado-financeiro").registrar(router)
 
 router.get("/", (req, res) => {
   enviarJson(res, 200, { status: "online (mock-api-dev)" })
