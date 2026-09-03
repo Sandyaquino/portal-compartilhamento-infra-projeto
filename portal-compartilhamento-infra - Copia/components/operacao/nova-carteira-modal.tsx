@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import dynamic from "next/dynamic"
+import { MapPinned } from "lucide-react"
 
 import {
   Dialog,
@@ -11,6 +13,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+
+const SelecaoMapaCarteira = dynamic(() => import("@/components/operacao/selecao-mapa-carteira"), {
+  ssr: false,
+  loading: () => <p className="p-6 text-sm text-slate-500">Carregando mapa...</p>,
+})
 import { API_BASE_URL } from "@/lib/config"
 import { useCurrentUser } from "@/hooks/use-current-user"
 import {
@@ -59,6 +66,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
   const [localidades, setLocalidades] = useState<number[]>([])
   const [qtdDia, setQtdDia] = useState(12)
   const [barramentosTexto, setBarramentosTexto] = useState("")
+  const [passoMapa, setPassoMapa] = useState(false)
 
   const [preview, setPreview] = useState<PreviewResp | null>(null)
   const [carregandoPreview, setCarregandoPreview] = useState(false)
@@ -79,6 +87,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
     setLocalidades([])
     setQtdDia(12)
     setBarramentosTexto("")
+    setPassoMapa(false)
     setPreview(null)
     setErro(null)
 
@@ -115,6 +124,10 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
     () => estrategias.find((e) => e.CODIGO === estrategia) ?? null,
     [estrategias, estrategia],
   )
+  const barramentosLista = useMemo(
+    () => barramentosTexto.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean),
+    [barramentosTexto],
+  )
   const localidadesDisponiveis = useMemo(
     () => areas.filter((a) => municipios.includes(a.MUNICIPIO)).flatMap((a) => a.localidades),
     [areas, municipios],
@@ -136,13 +149,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
       qtd_postes_dia: qtdDia,
       municipios,
       localidades,
-      barramentos:
-        modo === "MANUAL"
-          ? barramentosTexto
-              .split(/[\s,;]+/)
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : undefined,
+      barramentos: modo === "MANUAL" ? barramentosLista : undefined,
       usuario: user?.login ?? null,
     }
   }
@@ -172,18 +179,28 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
     }
   }
 
-  const podeGerar = idsEquipes.length > 0 && (modo === "MANUAL" ? barramentosTexto.trim().length > 0 : municipios.length > 0)
+  const podeGerar = idsEquipes.length > 0 && (modo === "MANUAL" ? barramentosLista.length > 0 : municipios.length > 0)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className={`max-h-[92vh] overflow-y-auto ${passoMapa ? "sm:max-w-5xl" : "sm:max-w-3xl"}`}>
         <DialogHeader>
-          <DialogTitle>Nova carteira de serviço</DialogTitle>
+          <DialogTitle>{passoMapa ? "Selecionar postes no mapa" : "Nova carteira de serviço"}</DialogTitle>
           <DialogDescription>
-            Monta o roteiro das equipes de campo. A rota é otimizada para a equipe não trocar de município a cada dia.
+            {passoMapa
+              ? "Desenhe áreas ou clique nos postes. Ao concluir, os barramentos voltam para o formulário."
+              : "Monta o roteiro das equipes de campo. A rota é otimizada para a equipe não trocar de município a cada dia."}
           </DialogDescription>
         </DialogHeader>
 
+        {passoMapa ? (
+          <SelecaoMapaCarteira
+            areas={areas}
+            selecionados={barramentosLista}
+            onChange={(bs) => setBarramentosTexto(bs.join("\n"))}
+            onConcluir={() => setPassoMapa(false)}
+          />
+        ) : (
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="grid gap-1 text-sm sm:col-span-1">
@@ -320,16 +337,24 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
               )}
             </>
           ) : (
-            <label className="grid gap-1 text-sm">
-              <span className="font-medium text-slate-700">Barramentos (um por linha ou separados por vírgula)</span>
+            <div className="grid gap-1.5 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-slate-700">
+                  Postes selecionados <span className="text-slate-400">({barramentosLista.length})</span>
+                </span>
+                <Button type="button" size="sm" variant="outline" onClick={() => setPassoMapa(true)}>
+                  <MapPinned className="h-3.5 w-3.5" />
+                  Selecionar no mapa
+                </Button>
+              </div>
               <textarea
                 value={barramentosTexto}
                 onChange={(e) => { setBarramentosTexto(e.target.value); setPreview(null) }}
                 rows={4}
-                placeholder="T123456, L654321, ..."
+                placeholder="Escolha no mapa, ou cole os barramentos aqui (T123456, L654321, ...)"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
-            </label>
+            </div>
           )}
 
           <label className="grid gap-1 text-sm">
@@ -365,16 +390,19 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
 
           {erro && <p className="text-sm font-medium text-destructive">{erro}</p>}
         </div>
+        )}
 
-        <DialogFooter className="flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button type="button" variant="outline" onClick={() => chamar("preview")} disabled={!podeGerar || carregandoPreview}>
-            {carregandoPreview ? "Calculando..." : "Pré-visualizar"}
-          </Button>
-          <Button type="button" onClick={() => chamar("gerar")} disabled={!podeGerar || gerando}>
-            {gerando ? "Gerando..." : "Gerar carteira"}
-          </Button>
-        </DialogFooter>
+        {!passoMapa && (
+          <DialogFooter className="flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+            <Button type="button" variant="outline" onClick={() => chamar("preview")} disabled={!podeGerar || carregandoPreview}>
+              {carregandoPreview ? "Calculando..." : "Pré-visualizar"}
+            </Button>
+            <Button type="button" onClick={() => chamar("gerar")} disabled={!podeGerar || gerando}>
+              {gerando ? "Gerando..." : "Gerar carteira"}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )
