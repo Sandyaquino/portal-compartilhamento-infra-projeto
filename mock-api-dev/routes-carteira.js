@@ -579,6 +579,17 @@ function registrar(router) {
     carteira.UPDATED_AT = new Date().toISOString()
     enviarJson(res, 200, { success: true, status: novo })
   })
+
+  router.delete("/api/carteira/:id", async (req, res, ctx) => {
+    const id = Number(ctx.params.id)
+    const idx = carteiras.findIndex((c) => c.ID_CARTEIRA === id)
+    if (idx === -1) return erroDetalhe(res, 404, "Carteira não encontrada")
+    carteiras.splice(idx, 1)
+    for (let i = carteiraOS.length - 1; i >= 0; i--) {
+      if (carteiraOS[i].ID_CARTEIRA === id) carteiraOS.splice(i, 1)
+    }
+    enviarJson(res, 200, { success: true, id_carteira: id })
+  })
 }
 
 module.exports = { registrar }

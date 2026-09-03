@@ -3,11 +3,19 @@
 import { useCallback, useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import dynamic from "next/dynamic"
-import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, Map as MapIcon } from "lucide-react"
+import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, Map as MapIcon, Trash2 } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { NotificationBanner, type Notification } from "@/components/ui/notification-banner"
 import { EstatItem, SecaoCard } from "@/components/projetos/projeto-ui"
 import { API_BASE_URL } from "@/lib/config"
@@ -39,6 +47,8 @@ export default function CarteiraDetalhePage() {
   const [det, setDet] = useState<CarteiraDetalhe | null>(null)
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState<Notification | null>(null)
+  const [confirmarExclusao, setConfirmarExclusao] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -69,6 +79,19 @@ export default function CarteiraDetalhePage() {
       await carregar()
     } catch (error) {
       setNotification({ type: "error", message: error instanceof Error ? error.message : "Erro ao mudar o status" })
+    }
+  }
+
+  async function excluir() {
+    setExcluindo(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/carteira/${id}`, { method: "DELETE" })
+      if (!res.ok) throw new Error("Não foi possível excluir a carteira")
+      router.push("/operacao/carteira")
+    } catch (error) {
+      setNotification({ type: "error", message: error instanceof Error ? error.message : "Erro ao excluir a carteira" })
+      setExcluindo(false)
+      setConfirmarExclusao(false)
     }
   }
 
@@ -111,6 +134,9 @@ export default function CarteiraDetalhePage() {
                 <Download className="h-4 w-4" /> Publicar
               </Button>
             )}
+            <Button type="button" variant="outline" className="text-red-700" onClick={() => setConfirmarExclusao(true)}>
+              <Trash2 className="h-4 w-4" /> Excluir
+            </Button>
           </div>
         }
       />
@@ -223,6 +249,26 @@ export default function CarteiraDetalhePage() {
           })}
         </div>
       </SecaoCard>
+
+      <Dialog open={confirmarExclusao} onOpenChange={(o) => !excluindo && setConfirmarExclusao(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Excluir carteira</DialogTitle>
+            <DialogDescription>
+              A carteira <strong>{c.TITULO}</strong> e as {resumo.qtd_os} ordens de serviço serão removidas. Esta ação não
+              pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmarExclusao(false)} disabled={excluindo}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="destructive" onClick={excluir} disabled={excluindo}>
+              {excluindo ? "Excluindo..." : "Excluir carteira"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

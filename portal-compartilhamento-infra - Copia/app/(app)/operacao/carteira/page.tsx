@@ -2,11 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { CalendarRange, MapPinned, Plus, Users } from "lucide-react"
+import { CalendarRange, MapPinned, Plus, Trash2, Users } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
 import { NotificationBanner, type Notification } from "@/components/ui/notification-banner"
 import {
   Table,
@@ -37,6 +45,8 @@ export default function CarteiraServicoPage() {
   const [loading, setLoading] = useState(true)
   const [modalNova, setModalNova] = useState(false)
   const [notification, setNotification] = useState<Notification | null>(null)
+  const [excluir, setExcluir] = useState<Carteira | null>(null)
+  const [excluindo, setExcluindo] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -53,6 +63,21 @@ export default function CarteiraServicoPage() {
       setLoading(false)
     }
   }, [])
+
+  async function confirmarExclusao() {
+    if (!excluir) return
+    setExcluindo(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/carteira/${excluir.ID_CARTEIRA}`, { method: "DELETE" })
+      if (!res.ok) throw new Error("Não foi possível excluir a carteira")
+      setCarteiras((lista) => lista.filter((c) => c.ID_CARTEIRA !== excluir.ID_CARTEIRA))
+      setExcluir(null)
+    } catch (error) {
+      setNotification({ type: "error", message: error instanceof Error ? error.message : "Erro ao excluir a carteira" })
+    } finally {
+      setExcluindo(false)
+    }
+  }
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -101,13 +126,14 @@ export default function CarteiraServicoPage() {
                 <TableHead className="px-5 py-3 font-semibold text-right">Equipes</TableHead>
                 <TableHead className="px-5 py-3 font-semibold text-right">OS</TableHead>
                 <TableHead className="px-5 py-3 font-semibold">Status</TableHead>
+                <TableHead className="px-3 py-3" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
-                <TableRow><TableCell colSpan={7} className="px-5 py-8 text-center text-sm text-slate-500">Carregando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="px-5 py-8 text-center text-sm text-slate-500">Carregando...</TableCell></TableRow>
               ) : carteiras.length === 0 ? (
-                <TableRow><TableCell colSpan={7}><EmptyState message="Nenhuma carteira gerada ainda. Clique em “Nova carteira”." /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={8}><EmptyState message="Nenhuma carteira gerada ainda. Clique em “Nova carteira”." /></TableCell></TableRow>
               ) : (
                 carteiras.map((c) => (
                   <TableRow
@@ -143,6 +169,18 @@ export default function CarteiraServicoPage() {
                         {LABEL_STATUS_CARTEIRA[c.STATUS]}
                       </span>
                     </TableCell>
+                    <TableCell className="px-3 py-3 text-right">
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        className="text-red-600"
+                        title="Excluir carteira"
+                        onClick={(e) => { e.stopPropagation(); setExcluir(c) }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -156,6 +194,26 @@ export default function CarteiraServicoPage() {
         onOpenChange={setModalNova}
         onCriada={(id) => router.push(`/operacao/carteira/${id}`)}
       />
+
+      <Dialog open={excluir !== null} onOpenChange={(o) => !excluindo && !o && setExcluir(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Excluir carteira</DialogTitle>
+            <DialogDescription>
+              A carteira <strong>{excluir?.TITULO}</strong> e as {(excluir?.QTD_OS ?? 0).toLocaleString("pt-BR")} ordens de
+              serviço serão removidas. Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setExcluir(null)} disabled={excluindo}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="destructive" onClick={confirmarExclusao} disabled={excluindo}>
+              {excluindo ? "Excluindo..." : "Excluir carteira"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
