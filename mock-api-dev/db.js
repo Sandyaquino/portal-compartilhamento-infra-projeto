@@ -115,9 +115,24 @@ const baseLocalidades = []
 let nuLocalidadeSeq = 30900000
 let nuPgSeq = 100000000
 
-// barramentos ja com operadora resolvida - alguns postes da base vao reusa-los
+// Barramentos que ja tem operadora resolvida (via `ocupacoes`). Postes da
+// base "com provedor" reusam um deles - assim o vinculo e real e a lista
+// de provedores no mapa funciona.
 const barramentosComOperadora = [...new Set(ocupacoes.filter((o) => o._idOperadora).map((o) => o.BARRAMENTO))]
 let idxBarramentoComOp = 0
+function proximoBarramentoComOp() {
+  return barramentosComOperadora.length
+    ? barramentosComOperadora[idxBarramentoComOp++ % barramentosComOperadora.length]
+    : `PST-${String(90000 + idxBarramentoComOp++).padStart(5, "0")}`
+}
+
+// Postes gerados ao longo de "ruas" (segmentos), com espacamento de ~35 m e
+// um perfil de atendimento por rua. Isso cria corredores contiguos com e
+// sem provedor (e vaos isolados dentro de ruas atendidas) - necessario para
+// as estrategias espaciais do gerador de carteira fazerem sentido.
+const PERFIL_PROB = { ALTA: 0.82, MISTA: 0.45, BAIXA: 0.07 }
+const PERFIS = ["ALTA", "ALTA", "MISTA", "BAIXA"]
+const ESPACO_POSTE_M = 35
 
 for (const mun of MUNICIPIOS_BASE) {
   const qtdLoc = 4 + Math.floor(Math.random() * 3) // 4..6 localidades
@@ -125,30 +140,47 @@ for (const mun of MUNICIPIOS_BASE) {
     const nuLocalidadeId = (nuLocalidadeSeq += 1000)
     const nome = `${NOMES_LOCALIDADE[l % NOMES_LOCALIDADE.length]} ${l + 1}`
     const centroLoc = {
-      lat: mun.centro.lat + aleatorio(-0.06, 0.06),
-      lng: mun.centro.lng + aleatorio(-0.06, 0.06),
+      lat: mun.centro.lat + aleatorio(-0.05, 0.05),
+      lng: mun.centro.lng + aleatorio(-0.05, 0.05),
     }
     baseLocalidades.push({ NU_LOCALIDADE_ID: nuLocalidadeId, LOCALIDADE: nome, MUNICIPIO: mun.nome, _centro: centroLoc })
 
-    const qtdPostes = 180 + Math.floor(Math.random() * 240) // 180..420 por localidade
-    for (let p = 0; p < qtdPostes; p++) {
-      const reusaComOp = Math.random() < 0.15 && barramentosComOperadora.length > 0
-      const deBarramento = reusaComOp
-        ? barramentosComOperadora[idxBarramentoComOp++ % barramentosComOperadora.length]
-        : `${Math.random() < 0.5 ? "T" : "L"}${String(100000 + Math.floor(Math.random() * 899999))}`
-      basePostes.push({
-        NU_PG_ID: ++nuPgSeq,
-        NU_LOCALIDADE_ID: nuLocalidadeId,
-        LOCALIDADE: nome,
-        DE_BARRAMENTO: deBarramento,
-        MUNICIPIO: mun.nome,
-        UF: "BA",
-        NU_LATITUDE: Number((centroLoc.lat + aleatorio(-0.018, 0.018)).toFixed(8)),
-        NU_LONGITUDE: Number((centroLoc.lng + aleatorio(-0.018, 0.018)).toFixed(8)),
-        DATA_ATUALIZACAO: new Date(Date.now() - Math.floor(Math.random() * 180) * 86400000).toISOString(),
-        CARGA_ID: "CARGA-2026-001",
-        ATIVO: "S",
-      })
+    const nRuas = 12 + Math.floor(Math.random() * 9) // 12..20 ruas
+    for (let r = 0; r < nRuas; r++) {
+      const bearing = Math.random() * Math.PI * 2
+      const comprimentoM = 140 + Math.random() * 320 // 140..460 m
+      const ini = {
+        lat: centroLoc.lat + aleatorio(-0.02, 0.02),
+        lng: centroLoc.lng + aleatorio(-0.02, 0.02),
+      }
+      const dLatTot = (comprimentoM / 111000) * Math.sin(bearing)
+      const dLngTot = (comprimentoM / 108000) * Math.cos(bearing)
+      const perfil = PERFIS[Math.floor(Math.random() * PERFIS.length)]
+      const probProv = PERFIL_PROB[perfil]
+      const nPostes = Math.max(3, Math.round(comprimentoM / ESPACO_POSTE_M))
+
+      for (let k = 0; k < nPostes; k++) {
+        const t = nPostes > 1 ? k / (nPostes - 1) : 0
+        const jitterLat = aleatorio(-0.00004, 0.00004)
+        const jitterLng = aleatorio(-0.00004, 0.00004)
+        const temProv = Math.random() < probProv
+        const deBarramento = temProv
+          ? proximoBarramentoComOp()
+          : `${Math.random() < 0.5 ? "T" : "L"}${String(100000 + Math.floor(Math.random() * 899999))}`
+        basePostes.push({
+          NU_PG_ID: ++nuPgSeq,
+          NU_LOCALIDADE_ID: nuLocalidadeId,
+          LOCALIDADE: nome,
+          DE_BARRAMENTO: deBarramento,
+          MUNICIPIO: mun.nome,
+          UF: "BA",
+          NU_LATITUDE: Number((ini.lat + dLatTot * t + jitterLat).toFixed(8)),
+          NU_LONGITUDE: Number((ini.lng + dLngTot * t + jitterLng).toFixed(8)),
+          DATA_ATUALIZACAO: new Date(Date.now() - Math.floor(Math.random() * 180) * 86400000).toISOString(),
+          CARGA_ID: "CARGA-2026-001",
+          ATIVO: "S",
+        })
+      }
     }
   }
 }
@@ -157,6 +189,42 @@ for (const mun of MUNICIPIOS_BASE) {
 const barramentosResolvidos = new Set(barramentosComOperadora)
 function basePosteTemProvedor(deBarramento) {
   return barramentosResolvidos.has(deBarramento)
+}
+
+// =====================================================
+// EPS (Empresa Prestadora de Serviço) e equipes de campo
+// (espelha sql/PORTAL_COMPARTILHAMENTO_CARTEIRA.sql). Alimentam o
+// gerador de Carteira de Serviço.
+// =====================================================
+const eps = [
+  { ID_EPS: 1, NOME: "ORCA Serviços de Campo Ltda", CNPJ: "10.111.222/0001-33", TIPO_SERVICO: "AMBOS", ATIVO: "S" },
+  { ID_EPS: 2, NOME: "Nordeste Redes Engenharia S.A.", CNPJ: "20.222.333/0001-44", TIPO_SERVICO: "FISCALIZACAO", ATIVO: "S" },
+  { ID_EPS: 3, NOME: "Bahia Infra Montagens Ltda", CNPJ: "30.333.444/0001-55", TIPO_SERVICO: "AMBOS", ATIVO: "S" },
+  { ID_EPS: 4, NOME: "Litoral Vistorias e Serviços", CNPJ: "40.444.555/0001-66", TIPO_SERVICO: "FISCALIZACAO", ATIVO: "S" },
+]
+
+const equipesCampo = []
+let seqEquipeCampo = 0
+{
+  // 2-3 equipes por EPS, com município-base entre os da Base de Postes.
+  const munBase = MUNICIPIOS_BASE.map((m) => ({ nome: m.nome, ...m.centro }))
+  eps.forEach((e, idxEps) => {
+    const qtd = 2 + (idxEps % 2)
+    for (let k = 0; k < qtd; k++) {
+      const base = munBase[(idxEps + k) % munBase.length]
+      equipesCampo.push({
+        ID_EQUIPE: ++seqEquipeCampo,
+        ID_EPS: e.ID_EPS,
+        NOME: `Turma ${String.fromCharCode(65 + seqEquipeCampo - 1)}`,
+        ENCARREGADO: `Encarregado ${String(seqEquipeCampo).padStart(2, "0")}`,
+        MUNICIPIO_BASE: base.nome,
+        LATITUDE_BASE: Number(base.lat.toFixed(8)),
+        LONGITUDE_BASE: Number(base.lng.toFixed(8)),
+        TIPO: e.TIPO_SERVICO === "REMOCAO" ? "REMOCAO" : "FISCALIZACAO",
+        ATIVO: "S",
+      })
+    }
+  })
 }
 
 let proximoIdAcao = 1
@@ -1340,6 +1408,9 @@ module.exports = {
   basePostes,
   baseLocalidades,
   basePosteTemProvedor,
+  // EPS / equipes de campo (gerador de carteira)
+  eps,
+  equipesCampo,
   // etapas
   etapas,
   etapaPorId,
