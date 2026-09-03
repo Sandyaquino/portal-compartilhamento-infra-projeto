@@ -224,6 +224,28 @@ function aplicarEstrategia(estrategia, postes, params = {}) {
 // ------------------------------------------------------------------
 // Otimização de rota: distribui os postes em equipes -> municípios -> dias
 // ------------------------------------------------------------------
+// Divide uma lista de postes em `n` faixas GEOGRAFICAS contiguas (ordena
+// pelo eixo de maior dispersao e corta). Mantem postes vizinhos juntos.
+function fatiarPorGeografia(lista, n) {
+  if (n <= 1) return [lista]
+  const lats = lista.map((s) => s.poste.NU_LATITUDE)
+  const lngs = lista.map((s) => s.poste.NU_LONGITUDE)
+  const rangeLat = Math.max(...lats) - Math.min(...lats)
+  const rangeLng = Math.max(...lngs) - Math.min(...lngs)
+  const ordenada = [...lista].sort((a, b) =>
+    rangeLng >= rangeLat
+      ? a.poste.NU_LONGITUDE - b.poste.NU_LONGITUDE
+      : a.poste.NU_LATITUDE - b.poste.NU_LATITUDE,
+  )
+  const tam = Math.ceil(ordenada.length / n)
+  const fatias = []
+  for (let i = 0; i < n; i++) {
+    const f = ordenada.slice(i * tam, (i + 1) * tam)
+    if (f.length) fatias.push(f)
+  }
+  return fatias
+}
+
 function alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps) {
   const capEquipe = qtdPorDia * dias.length
 
@@ -258,27 +280,40 @@ function alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps) {
       Math.max(1, Math.ceil(mun.lista.length / capEquipe)),
     )
     const escolhidas = livres.splice(0, nEquipes)
-    const porFatia = Math.ceil(mun.lista.length / nEquipes)
-    escolhidas.forEach((b, i) => {
-      const fatia = mun.lista.slice(i * porFatia, (i + 1) * porFatia).slice(0, capEquipe)
-      if (fatia.length) {
-        b.municipios.push({ nome: mun.nome, centro: centro(fatia.map((s) => s.poste)), lista: fatia })
-        b.cap -= fatia.length
-      }
-    })
+    // faixas geográficas -> cada faixa para a equipe de base mais próxima
+    const fatias = fatiarPorGeografia(mun.lista, escolhidas.length)
+    const equipesPend = [...escolhidas]
+    for (const fatia of fatias) {
+      const c = centro(fatia.map((s) => s.poste))
+      equipesPend.sort(
+        (a, b) =>
+          metros({ lat: a.equipe.LATITUDE_BASE, lng: a.equipe.LONGITUDE_BASE }, c) -
+          metros({ lat: b.equipe.LATITUDE_BASE, lng: b.equipe.LONGITUDE_BASE }, c),
+      )
+      const b = equipesPend.shift()
+      const corte = fatia.slice(0, capEquipe)
+      b.municipios.push({ nome: mun.nome, centro: centro(corte.map((s) => s.poste)), lista: corte })
+      b.cap -= corte.length
+    }
   }
-  // municípios que sobraram (sem equipe livre) vão para as menos carregadas
+  // municípios que sobraram (sem equipe livre) vão para as menos carregadas,
+  // também em fatia geográfica contígua
   for (let mi = 0; mi < municipios.length; mi++) {
     const mun = municipios[mi]
     const jaAtendido = buckets.some((b) => b.municipios.some((m) => m.nome === mun.nome))
     if (jaAtendido) continue
+    const [listaGeo] = fatiarPorGeografia(mun.lista, 1)
+    const ordenada =
+      listaGeo.length > 1
+        ? [...listaGeo].sort((a, b) => a.poste.NU_LONGITUDE - b.poste.NU_LONGITUDE)
+        : listaGeo
     let idx = 0
-    while (idx < mun.lista.length) {
+    while (idx < ordenada.length) {
       buckets.sort((a, b) => b.cap - a.cap)
       const alvo = buckets[0]
       if (alvo.cap <= 0) break
-      const n = Math.min(alvo.cap, mun.lista.length - idx)
-      const fatia = mun.lista.slice(idx, idx + n)
+      const n = Math.min(alvo.cap, ordenada.length - idx)
+      const fatia = ordenada.slice(idx, idx + n)
       alvo.municipios.push({ nome: mun.nome, centro: centro(fatia.map((s) => s.poste)), lista: fatia })
       alvo.cap -= n
       idx += n
