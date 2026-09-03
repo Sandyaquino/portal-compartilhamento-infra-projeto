@@ -1,12 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Download, PencilLine, Upload } from "lucide-react"
+import { Download, LineChart as LineChartIcon, PencilLine, Table as TableIcon, Upload } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
 import { NotificationBanner, type Notification } from "@/components/ui/notification-banner"
 import { EstatItem, SecaoCard } from "@/components/projetos/projeto-ui"
+import { GraficoFinanceiro } from "@/components/resultados/grafico-financeiro"
 import { API_BASE_URL } from "@/lib/config"
 import { useCurrentUser } from "@/hooks/use-current-user"
 import { baixarModeloFinanceiro, lerPlanilhaFinanceiro } from "@/lib/exports/resultado-financeiro-excel"
@@ -94,6 +95,7 @@ export default function ResultadoFinanceiroPage() {
   const [ano, setAno] = useState(ANO_ATUAL)
   const [mesRef, setMesRef] = useState<number | null>(null)
   const [visao, setVisao] = useState<Visao>("MENSAL")
+  const [aba, setAba] = useState<"TABELA" | "GRAFICO">("TABELA")
   const [mostrarRev, setMostrarRev] = useState(true)
   const [editando, setEditando] = useState(false)
 
@@ -302,15 +304,32 @@ export default function ResultadoFinanceiroPage() {
               Mostrar REV
             </label>
 
-            <Button
-              type="button"
-              size="sm"
-              variant={editando ? "default" : "outline"}
-              onClick={() => { setEditando((v) => !v); setVisao("MENSAL") }}
-              className="ml-auto"
-            >
-              <PencilLine className="h-3.5 w-3.5" /> {editando ? "Concluir edição" : "Editar valores"}
-            </Button>
+            <span className="ml-auto flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 text-sm">
+              {(["TABELA", "GRAFICO"] as const).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => { setAba(a); if (a === "GRAFICO") setEditando(false) }}
+                  className={`flex items-center gap-1 rounded-md px-2.5 py-1 font-medium transition ${
+                    aba === a ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {a === "TABELA" ? <TableIcon className="h-3.5 w-3.5" /> : <LineChartIcon className="h-3.5 w-3.5" />}
+                  {a === "TABELA" ? "Tabela" : "Gráfico"}
+                </button>
+              ))}
+            </span>
+
+            {aba === "TABELA" && (
+              <Button
+                type="button"
+                size="sm"
+                variant={editando ? "default" : "outline"}
+                onClick={() => { setEditando((v) => !v); setVisao("MENSAL") }}
+              >
+                <PencilLine className="h-3.5 w-3.5" /> {editando ? "Concluir edição" : "Editar valores"}
+              </Button>
+            )}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -333,15 +352,20 @@ export default function ResultadoFinanceiroPage() {
           </div>
 
           <SecaoCard
-            titulo="Evolução mensal"
+            titulo={aba === "GRAFICO" ? "Evolução — gráfico" : "Evolução mensal"}
             descricao={
-              visao === "YTD"
-                ? "Valores acumulados de janeiro até o mês. Edição só na visão Mensal."
-                : editando
-                  ? "Clique nas células de Meta, Realizado ou REV para editar. Salva automaticamente."
-                  : "Meta x Realizado x REV mês a mês. Use “Editar valores” ou importe a planilha modelo."
+              aba === "GRAFICO"
+                ? `Meta x Realizado${mostrarRev ? " x REV" : ""} ao longo do ano — ${visao === "YTD" ? "acumulado (YTD)" : "mês a mês"}.`
+                : visao === "YTD"
+                  ? "Valores acumulados de janeiro até o mês. Edição só na visão Mensal."
+                  : editando
+                    ? "Clique nas células de Meta, Realizado ou REV para editar. Salva automaticamente."
+                    : "Meta x Realizado x REV mês a mês. Use “Editar valores” ou importe a planilha modelo."
             }
           >
+            {aba === "GRAFICO" ? (
+              <GraficoFinanceiro series={indicadores} visao={visao} mostrarRev={mostrarRev} />
+            ) : (
             <div className="space-y-5">
               {indicadores.map((serie) => (
                 <div key={serie.indicador} className="overflow-hidden rounded-lg border border-slate-200">
@@ -421,6 +445,7 @@ export default function ResultadoFinanceiroPage() {
                 </div>
               ))}
             </div>
+            )}
             {salvando && <p className="mt-2 text-xs text-slate-400">Salvando...</p>}
           </SecaoCard>
         </>
