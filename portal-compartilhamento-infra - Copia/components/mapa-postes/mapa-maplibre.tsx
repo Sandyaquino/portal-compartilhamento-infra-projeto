@@ -139,11 +139,16 @@ function pontoEmPoligono(x: number, y: number, anel: { lng: number; lat: number 
   return dentro
 }
 
+const SEM_DESTAQUE: string[] = []
+
 export type MapaMapLibreProps = {
   postes: PosteMapa[]
   onMudarViewport: (bounds: ViewportBounds) => void
   onSelecionarPoste: (poste: PosteMapa) => void
   corOperadoraSelecionada?: string | null
+  // Barramentos que devem aparecer em vermelho (ex.: postes já escolhidos
+  // para a carteira de serviço).
+  barramentosDestacados?: string[]
   // Colore cada poste pelo nível de saturação (ocupados x capacidade) em vez
   // da cor de identificação/operadora.
   colorirPorSaturacao?: boolean
@@ -167,6 +172,7 @@ export default function MapaMapLibre({
   onMudarViewport,
   onSelecionarPoste,
   corOperadoraSelecionada = null,
+  barramentosDestacados = SEM_DESTAQUE,
   colorirPorSaturacao = false,
   modoSelecao = false,
   formaSelecao = "retangulo",
@@ -629,14 +635,17 @@ export default function MapaMapLibre({
 
     for (const marcador of marcadoresRef.current) marcador.remove()
 
+    const destacados = new Set(barramentosDestacados)
+
     marcadoresRef.current = postes.map((poste) => {
       const identificado = poste.TEM_OCUPACAO_IDENTIFICADA === "S"
       // Postes da Base Coelba não têm capacidade/ocupação; nesse caso a
       // coloração por saturação (e a cor da operadora) não se aplica -
       // ficam sempre verde (com provedor) / cinza (sem provedor).
       const temCapacidade = poste.CAPACIDADE != null && poste.PONTOS_OCUPADOS != null
-      const cor =
-        temCapacidade && colorirPorSaturacao
+      const cor = destacados.has(poste.BARRAMENTO)
+        ? "#DC2626"
+        : temCapacidade && colorirPorSaturacao
           ? SATURACAO_INFO[nivelSaturacao(poste.PONTOS_OCUPADOS, poste.CAPACIDADE)].cor
           : (temCapacidade ? corOperadoraSelecionada : null) ?? (identificado ? "#16A34A" : "#94A3B8")
       const el = criarElementoMarcador(cor)
@@ -644,7 +653,7 @@ export default function MapaMapLibre({
       el.addEventListener("click", () => onSelecionarPosteRef.current(poste))
       return new maplibregl.Marker({ element: el }).setLngLat([poste.X, poste.Y]).addTo(map)
     })
-  }, [postes, corOperadoraSelecionada, colorirPorSaturacao, pronto])
+  }, [postes, corOperadoraSelecionada, barramentosDestacados, colorirPorSaturacao, pronto])
 
   useEffect(() => {
     celulasDensidadeRef.current = celulasDensidade

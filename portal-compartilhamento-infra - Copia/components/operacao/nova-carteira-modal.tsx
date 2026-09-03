@@ -183,7 +183,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`max-h-[92vh] overflow-y-auto ${passoMapa ? "sm:max-w-5xl" : "sm:max-w-3xl"}`}>
+      <DialogContent className={`max-h-[95vh] overflow-y-auto ${passoMapa ? "sm:max-w-[94vw]" : "sm:max-w-3xl"}`}>
         <DialogHeader>
           <DialogTitle>{passoMapa ? "Selecionar postes no mapa" : "Nova carteira de serviço"}</DialogTitle>
           <DialogDescription>

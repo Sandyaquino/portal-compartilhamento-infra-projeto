@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
-import { Circle, Hexagon, MousePointerSquareDashed, Square, Trash2 } from "lucide-react"
+import { Circle, Hexagon, MousePointerSquareDashed, Square, Trash2, Undo2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { API_BASE_URL } from "@/lib/config"
@@ -45,6 +45,11 @@ export default function SelecaoMapaCarteira({ areas, selecionados, onChange, onC
   const [voo, setVoo] = useState<ViewportBounds | null>(null)
   const [forma, setForma] = useState<FormaSelecao>("retangulo")
   const [carregando, setCarregando] = useState(false)
+  const [grande, setGrande] = useState(false)
+
+  // Pilha de estados anteriores para "desfazer".
+  const historicoRef = useRef<string[][]>([])
+  const [temHistorico, setTemHistorico] = useState(false)
 
   const localidades = useMemo(
     () => areas.find((a) => a.MUNICIPIO === municipio)?.localidades ?? [],
@@ -89,22 +94,38 @@ export default function SelecaoMapaCarteira({ areas, selecionados, onChange, onC
     }
   }, [municipio, localidade])
 
+  function registrar() {
+    historicoRef.current = [...historicoRef.current.slice(-29), [...selecionados]]
+    setTemHistorico(true)
+  }
   function adicionar(barramentos: string[]) {
+    if (!barramentos.length) return
+    registrar()
     const set = new Set(selecionados)
     for (const b of barramentos) set.add(b)
     onChange([...set])
   }
   function alternar(barramento: string) {
+    registrar()
     const set = new Set(selecionados)
     if (set.has(barramento)) set.delete(barramento)
     else set.add(barramento)
     onChange([...set])
   }
+  function limpar() {
+    registrar()
+    onChange([])
+  }
+  function desfazer() {
+    const anterior = historicoRef.current.pop()
+    setTemHistorico(historicoRef.current.length > 0)
+    if (anterior) onChange(anterior)
+  }
 
   const semCelulas: CelulaDensidade[] = []
 
   return (
-    <div className="flex h-[62vh] min-h-[420px] flex-col gap-2">
+    <div className={`flex ${grande ? "h-[86vh]" : "h-[70vh]"} min-h-[440px] flex-col gap-2`}>
       <div className="flex flex-wrap items-center gap-2">
         <select
           value={municipio}
@@ -151,8 +172,15 @@ export default function SelecaoMapaCarteira({ areas, selecionados, onChange, onC
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-xs font-medium text-slate-600">{selecionados.length} poste(s) selecionado(s)</span>
-          <Button type="button" size="icon-sm" variant="ghost" onClick={() => onChange([])} disabled={!selecionados.length}>
+          <Button type="button" size="sm" variant="outline" onClick={desfazer} disabled={!temHistorico}>
+            <Undo2 className="h-3.5 w-3.5" />
+            Desfazer
+          </Button>
+          <Button type="button" size="icon-sm" variant="ghost" title="Limpar seleção" onClick={limpar} disabled={!selecionados.length}>
             <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => setGrande((v) => !v)}>
+            {grande ? "Reduzir" : "Ampliar"}
           </Button>
           <Button type="button" size="sm" onClick={onConcluir}>
             Concluir seleção
@@ -161,11 +189,12 @@ export default function SelecaoMapaCarteira({ areas, selecionados, onChange, onC
       </div>
 
       <p className="text-[11px] text-slate-500">
-        Desenhe uma área para adicionar todos os postes dentro dela, ou clique num poste para incluir/remover. Verde = com
-        provedor, cinza = sem provedor.
+        Desenhe uma área para adicionar todos os postes dentro dela, ou clique num poste para incluir/remover. Selecionados
+        ficam <span className="font-semibold text-red-600">vermelhos</span>; verde = com provedor, cinza = sem provedor. Arraste
+        a borda inferior do mapa para ajustar a altura.
       </p>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200">
+      <div className="relative min-h-[360px] flex-1 resize-y overflow-hidden rounded-xl border border-slate-200">
         {!municipio && !localidade ? (
           <div className="flex h-full items-center justify-center text-sm text-slate-500">
             Escolha um município (e uma localidade) para carregar os postes.
@@ -175,6 +204,7 @@ export default function SelecaoMapaCarteira({ areas, selecionados, onChange, onC
             postes={postes}
             onMudarViewport={() => {}}
             onSelecionarPoste={(p) => alternar(p.BARRAMENTO)}
+            barramentosDestacados={selecionados}
             modoSelecao
             formaSelecao={forma}
             onSelecionarArea={(_, postesNaArea) => adicionar(postesNaArea.map((p) => p.BARRAMENTO))}
@@ -184,7 +214,7 @@ export default function SelecaoMapaCarteira({ areas, selecionados, onChange, onC
           />
         )}
         {selecionados.length > 0 && (
-          <div className="absolute left-2 top-2 z-[1000] rounded-lg border border-primary/30 bg-white/95 px-2.5 py-1 text-xs font-semibold text-primary shadow">
+          <div className="absolute left-2 top-2 z-[1000] rounded-lg border border-red-300 bg-white/95 px-2.5 py-1 text-xs font-semibold text-red-600 shadow">
             {selecionados.length} selecionado(s)
           </div>
         )}
