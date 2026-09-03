@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { AlertTriangle, CheckCircle2, Gauge, ListChecks, MapPin } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { CalendarRange, MapPinned, Plus, Users } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
-import { KpiCard } from "@/components/comercial/kpi-card"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
+import { NotificationBanner, type Notification } from "@/components/ui/notification-banner"
 import {
   Table,
   TableHeader,
@@ -16,144 +16,146 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/table"
+import { EstatItem } from "@/components/projetos/projeto-ui"
+import { NovaCarteiraModal } from "@/components/operacao/nova-carteira-modal"
 import { API_BASE_URL } from "@/lib/config"
-import type { Operadora, ResumoPostes } from "@/lib/types/postes"
+import {
+  CLASSE_STATUS_CARTEIRA,
+  LABEL_STATUS_CARTEIRA,
+  type Carteira,
+} from "@/lib/types/carteira"
 
-export default function CarteiraPage() {
-  const [resumo, setResumo] = useState<ResumoPostes | null>(null)
-  const [operadoras, setOperadoras] = useState<Operadora[]>([])
+function formatarData(v?: string | null) {
+  if (!v) return "—"
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleDateString("pt-BR")
+}
+
+export default function CarteiraServicoPage() {
+  const router = useRouter()
+  const [carteiras, setCarteiras] = useState<Carteira[]>([])
   const [loading, setLoading] = useState(true)
+  const [modalNova, setModalNova] = useState(false)
+  const [notification, setNotification] = useState<Notification | null>(null)
 
-  useEffect(() => {
-    Promise.all([
-      fetch(`${API_BASE_URL}/api/postes/resumo`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
-      fetch(`${API_BASE_URL}/api/postes/operadoras`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
-    ])
-      .then(([resumoData, operadorasData]) => {
-        setResumo(resumoData)
-        setOperadoras(Array.isArray(operadorasData) ? operadorasData : [])
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/carteira`, { cache: "no-store" })
+      if (!res.ok) throw new Error(`Erro ${res.status} ao carregar as carteiras`)
+      setCarteiras(await res.json())
+    } catch (error) {
+      setNotification({
+        type: "error",
+        message: error instanceof Error ? error.message : "Erro ao carregar as carteiras",
       })
-      .catch(() => {
-        setResumo(null)
-        setOperadoras([])
-      })
-      .finally(() => setLoading(false))
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
-  const totalOcupacoes = operadoras.reduce((total, op) => total + Number(op.TOTAL_OCUPACOES ?? 0), 0)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregar()
+  }, [carregar])
+
+  const totalOs = carteiras.reduce((s, c) => s + (c.QTD_OS ?? 0), 0)
+  const rascunhos = carteiras.filter((c) => c.STATUS === "RASCUNHO").length
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="mx-auto max-w-[1400px] space-y-5 p-4 md:p-6">
       <PageHeader
-        title="Carteira"
-        description="Visão consolidada do parque de postes e das ocupações compartilhadas."
+        title="Carteira de Serviço"
+        description="Roteiro de trabalho das equipes de campo — geração diária, semanal ou mensal, manual ou automática, com otimização de rota."
         breadcrumbs={[
           { label: "Início", href: "/" },
           { label: "Operação", href: "/operacao" },
-          { label: "Carteira" },
+          { label: "Carteira de Serviço" },
         ]}
         actions={
-          <Link href="/mapa-postes">
-            <Button type="button" variant="outline">
-              <MapPin className="h-4 w-4" />
-              Abrir Mapa de Postes
-            </Button>
-          </Link>
+          <Button type="button" onClick={() => setModalNova(true)}>
+            <Plus className="h-4 w-4" />
+            Nova carteira
+          </Button>
         }
       />
 
-      {loading ? (
-        <p className="text-sm text-slate-500">Carregando carteira...</p>
-      ) : !resumo ? (
-        <EmptyState
-          message="Não foi possível carregar o resumo da carteira."
-          className="rounded-xl border border-slate-200 bg-slate-50 p-8"
-        />
-      ) : (
-        <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <KpiCard
-              title="Postes"
-              value={(resumo.total_postes ?? 0).toLocaleString("pt-BR")}
-              subtitle="Total cadastrado"
-              icon={MapPin}
-              color="text-primary"
-            />
-            <KpiCard
-              title="Ocupações"
-              value={(resumo.total_ocupacoes ?? 0).toLocaleString("pt-BR")}
-              subtitle="Registros de terceiros"
-              icon={ListChecks}
-              color="text-slate-600"
-            />
-            <KpiCard
-              title="Identificados"
-              value={`${resumo.percentual_identificado ?? 0}%`}
-              subtitle={`${(resumo.postes_identificados ?? 0).toLocaleString("pt-BR")} postes com ocupação identificada`}
-              icon={CheckCircle2}
-              color="text-green-600"
-            />
-            <KpiCard
-              title="Esgotados"
-              value={resumo.postes_esgotados != null ? resumo.postes_esgotados.toLocaleString("pt-BR") : "n/d"}
-              subtitle={
-                resumo.postes_sobrecarga != null
-                  ? `${resumo.postes_sobrecarga.toLocaleString("pt-BR")} em sobrecarga`
-                  : "Sem dado de capacidade do poste"
-              }
-              icon={AlertTriangle}
-              color="text-red-600"
-            />
-          </div>
+      <NotificationBanner notification={notification} />
 
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-200 p-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900">Ocupação por operadora</h2>
-                <p className="text-sm text-slate-500">
-                  {operadoras.length} operadoras · {totalOcupacoes.toLocaleString("pt-BR")} ocupações no total
-                </p>
-              </div>
-              <Gauge className="h-5 w-5 text-slate-400" />
-            </div>
+      <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:grid-cols-4 sm:divide-y-0">
+        <EstatItem label="Carteiras" valor={carteiras.length} tom="primary" sub="geradas" />
+        <EstatItem label="OS planejadas" valor={totalOs.toLocaleString("pt-BR")} sub="somando todas" />
+        <EstatItem label="Rascunhos" valor={rascunhos} tom={rascunhos > 0 ? "amber" : "slate"} sub="aguardando publicação" />
+        <EstatItem label="Publicadas" valor={carteiras.filter((c) => c.STATUS === "PUBLICADA").length} tom="green" sub="em execução" />
+      </div>
 
-            {operadoras.length === 0 ? (
-              <EmptyState message="Nenhuma operadora cadastrada." />
-            ) : (
-              <Table className="text-sm">
-                <TableHeader className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <TableRow>
-                    <TableHead className="px-4 py-3">Operadora</TableHead>
-                    <TableHead className="px-4 py-3">CNPJ</TableHead>
-                    <TableHead className="px-4 py-3 text-right">Ocupações</TableHead>
-                    <TableHead className="px-4 py-3 text-right">Participação</TableHead>
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <Table className="min-w-[980px] text-sm">
+            <TableHeader>
+              <TableRow className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                <TableHead className="px-5 py-3 font-semibold">Carteira</TableHead>
+                <TableHead className="px-5 py-3 font-semibold">Período</TableHead>
+                <TableHead className="px-5 py-3 font-semibold">Modo / lógica</TableHead>
+                <TableHead className="px-5 py-3 font-semibold">EPS</TableHead>
+                <TableHead className="px-5 py-3 font-semibold text-right">Equipes</TableHead>
+                <TableHead className="px-5 py-3 font-semibold text-right">OS</TableHead>
+                <TableHead className="px-5 py-3 font-semibold">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow><TableCell colSpan={7} className="px-5 py-8 text-center text-sm text-slate-500">Carregando...</TableCell></TableRow>
+              ) : carteiras.length === 0 ? (
+                <TableRow><TableCell colSpan={7}><EmptyState message="Nenhuma carteira gerada ainda. Clique em “Nova carteira”." /></TableCell></TableRow>
+              ) : (
+                carteiras.map((c) => (
+                  <TableRow
+                    key={c.ID_CARTEIRA}
+                    className="cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                    onClick={() => router.push(`/operacao/carteira/${c.ID_CARTEIRA}`)}
+                  >
+                    <TableCell className="px-5 py-3">
+                      <p className="font-semibold text-slate-800">{c.TITULO}</p>
+                      <p className="flex items-center gap-1 text-xs text-slate-500">
+                        <CalendarRange className="h-3 w-3" /> {c.FREQUENCIA.toLowerCase()}
+                      </p>
+                    </TableCell>
+                    <TableCell className="px-5 py-3 text-slate-600">
+                      {formatarData(c.DATA_INICIO)} <span className="text-slate-400">a</span> {formatarData(c.DATA_FIM)}
+                    </TableCell>
+                    <TableCell className="px-5 py-3 text-slate-600">
+                      {c.MODO === "AUTOMATICA" ? (
+                        <span className="text-xs">Auto · <span className="font-medium">{c.ESTRATEGIA}</span></span>
+                      ) : (
+                        <span className="text-xs">Manual</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="px-5 py-3 text-slate-600">{c.EPS ?? "—"}</TableCell>
+                    <TableCell className="px-5 py-3 text-right">
+                      <span className="inline-flex items-center gap-1 text-slate-700"><Users className="h-3.5 w-3.5 text-slate-400" />{c.QTD_EQUIPES}</span>
+                    </TableCell>
+                    <TableCell className="px-5 py-3 text-right">
+                      <span className="inline-flex items-center gap-1 font-semibold text-slate-800"><MapPinned className="h-3.5 w-3.5 text-slate-400" />{(c.QTD_OS ?? 0).toLocaleString("pt-BR")}</span>
+                    </TableCell>
+                    <TableCell className="px-5 py-3">
+                      <span className={`inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold ${CLASSE_STATUS_CARTEIRA[c.STATUS]}`}>
+                        {LABEL_STATUS_CARTEIRA[c.STATUS]}
+                      </span>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {[...operadoras]
-                    .sort((a, b) => Number(b.TOTAL_OCUPACOES ?? 0) - Number(a.TOTAL_OCUPACOES ?? 0))
-                    .map((operadora) => {
-                      const ocup = Number(operadora.TOTAL_OCUPACOES ?? 0)
-                      const participacao = totalOcupacoes ? (ocup / totalOcupacoes) * 100 : 0
-                      return (
-                        <TableRow key={operadora.ID}>
-                          <TableCell className="px-4 py-3 font-medium text-slate-800">{operadora.RAZAO_SOCIAL}</TableCell>
-                          <TableCell className="px-4 py-3 text-slate-600">{operadora.CNPJ}</TableCell>
-                          <TableCell className="px-4 py-3 text-right font-semibold text-slate-800">
-                            {ocup.toLocaleString("pt-BR")}
-                          </TableCell>
-                          <TableCell className="px-4 py-3 text-right text-slate-600">
-                            {participacao.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                </TableBody>
-              </Table>
-            )}
-          </div>
-        </>
-      )}
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+
+      <NovaCarteiraModal
+        open={modalNova}
+        onOpenChange={setModalNova}
+        onCriada={(id) => router.push(`/operacao/carteira/${id}`)}
+      />
     </div>
   )
 }
