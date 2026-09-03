@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { ClipboardList, ExternalLink, MapPin, ShieldAlert, X } from "lucide-react"
+import { AlertTriangle, ClipboardList, ExternalLink, MapPin, ShieldAlert, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/ui/empty-state"
@@ -14,23 +14,40 @@ import {
   type PosteOcupacao,
   type TipoAcao,
 } from "@/lib/types/postes"
+import type { BasePosteMapa } from "@/lib/types/base-postes"
 
 type PosteDetalheSheetProps = {
   poste: PosteMapa | null
+  // Poste vindo da camada "Base de Postes Coelba" (cadastro de ativos).
+  // Usa o mesmo layout do poste do parque; a diferença é que os ocupantes
+  // vêm de PROVEDORES (já no objeto) e não há dado de saturação.
+  basePoste?: BasePosteMapa | null
   onOpenChange: (open: boolean) => void
   onAbrirAcao: (poste: PosteMapa, tipo: TipoAcao) => void
+}
+
+function formatarData(valor: string | null | undefined) {
+  if (!valor) return "-"
+  const data = new Date(valor)
+  return Number.isNaN(data.getTime()) ? "-" : data.toLocaleDateString("pt-BR")
 }
 
 // Painel restrito à área do mapa (renderizado como filho do wrapper `relative`
 // que envolve o MapaMapLibre em page.tsx) - de propósito não usa o componente
 // Sheet global, que é um overlay fixo de página inteira e cobria o cabeçalho
 // e os cards de resumo por cima.
-export function PosteDetalheSheet({ poste, onOpenChange, onAbrirAcao }: PosteDetalheSheetProps) {
+export function PosteDetalheSheet({ poste, basePoste, onOpenChange, onAbrirAcao }: PosteDetalheSheetProps) {
   const [ocupacoes, setOcupacoes] = useState<PosteOcupacao[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
+  const ehBase = !poste && !!basePoste
+  const barramento = poste?.BARRAMENTO ?? basePoste?.DE_BARRAMENTO ?? ""
+  const lat = poste ? poste.Y : basePoste?.NU_LATITUDE ?? 0
+  const lng = poste ? poste.X : basePoste?.NU_LONGITUDE ?? 0
+
   useEffect(() => {
+    // Base: os ocupantes já vêm em basePoste.PROVEDORES, não há fetch.
     if (!poste) return
 
     let cancelado = false
@@ -58,27 +75,45 @@ export function PosteDetalheSheet({ poste, onOpenChange, onAbrirAcao }: PosteDet
     }
   }, [poste])
 
-  if (!poste) return null
+  if (!poste && !basePoste) return null
 
-  const linkStreetView = `https://www.google.com/maps?layer=c&cbll=${poste.Y},${poste.X}`
-  const linkMapa = `https://www.google.com/maps?q=${poste.Y},${poste.X}`
+  const linkStreetView = `https://www.google.com/maps?layer=c&cbll=${lat},${lng}`
+  const linkMapa = `https://www.google.com/maps?q=${lat},${lng}`
 
   // O backend real ainda não expõe capacidade/pontos ocupados por poste
-  // (só o mock). Sem esse dado, escondemos o painel de saturação.
-  const temSaturacao = poste.CAPACIDADE != null && poste.CAPACIDADE > 0 && poste.PONTOS_OCUPADOS != null
-  const nivel = nivelSaturacao(poste.PONTOS_OCUPADOS, poste.CAPACIDADE)
+  // (só o mock, e só no parque). Sem esse dado, escondemos o painel de saturação.
+  const temSaturacao =
+    !!poste && poste.CAPACIDADE != null && poste.CAPACIDADE > 0 && poste.PONTOS_OCUPADOS != null
+  const nivel = nivelSaturacao(poste?.PONTOS_OCUPADOS, poste?.CAPACIDADE)
   const infoSaturacao = SATURACAO_INFO[nivel]
   const percentualOcupacao =
-    temSaturacao ? Math.round(((poste.PONTOS_OCUPADOS ?? 0) / (poste.CAPACIDADE ?? 1)) * 100) : 0
+    temSaturacao ? Math.round(((poste!.PONTOS_OCUPADOS ?? 0) / (poste!.CAPACIDADE ?? 1)) * 100) : 0
+
+  // Poste equivalente para o fluxo de ação (Fiscalização/Ordenamento).
+  const posteParaAcao: PosteMapa = poste ?? {
+    BARRAMENTO: barramento,
+    X: lng,
+    Y: lat,
+    TEM_OCUPACAO_IDENTIFICADA: basePoste?.TEM_PROVEDOR ?? "N",
+  }
+
+  const provedoresBase = basePoste?.PROVEDORES ?? []
+  const semProvedorBase = ehBase && provedoresBase.length === 0
 
   return (
     <div className="absolute inset-y-0 right-0 z-[1000] flex w-full flex-col border-l border-slate-200 bg-white shadow-xl sm:w-[360px]">
       <div className="flex items-start justify-between gap-2 border-b border-slate-100 p-4">
         <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold text-slate-900">Poste {poste.BARRAMENTO}</h2>
+          <h2 className="truncate text-sm font-semibold text-slate-900">Poste {barramento}</h2>
           <p className="text-xs text-slate-500">
-            {poste.Y.toFixed(6)}, {poste.X.toFixed(6)}
+            {lat.toFixed(6)}, {lng.toFixed(6)}
           </p>
+          {ehBase && (
+            <p className="mt-0.5 truncate text-[11px] text-slate-400">
+              NU_PG_ID {basePoste!.NU_PG_ID} · {basePoste!.LOCALIDADE ?? "—"} · {basePoste!.MUNICIPIO ?? "—"} ·
+              atualizado {formatarData(basePoste!.DATA_ATUALIZACAO)}
+            </p>
+          )}
         </div>
         <Button variant="ghost" size="icon-sm" onClick={() => onOpenChange(false)}>
           <X className="h-4 w-4" />
@@ -98,8 +133,8 @@ export function PosteDetalheSheet({ poste, onOpenChange, onAbrirAcao }: PosteDet
               </span>
             </div>
             <div className="mt-2 flex items-baseline gap-1 text-sm text-slate-700">
-              <strong className="text-lg text-slate-900">{poste.PONTOS_OCUPADOS}</strong>
-              <span>/ {poste.CAPACIDADE} pontos de fixação ({percentualOcupacao}%)</span>
+              <strong className="text-lg text-slate-900">{poste!.PONTOS_OCUPADOS}</strong>
+              <span>/ {poste!.CAPACIDADE} pontos de fixação ({percentualOcupacao}%)</span>
             </div>
             <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100">
               <div
@@ -107,6 +142,18 @@ export function PosteDetalheSheet({ poste, onOpenChange, onAbrirAcao }: PosteDet
                 style={{ width: `${Math.min(100, percentualOcupacao)}%`, backgroundColor: infoSaturacao.cor }}
               />
             </div>
+          </div>
+        )}
+
+        {semProvedorBase && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+              <AlertTriangle className="h-4 w-4" />
+              Sem provedor associado
+            </p>
+            <p className="mt-1 text-xs text-amber-700">
+              Nenhuma ocupação de terceiro identificada neste poste. Candidato a fiscalização.
+            </p>
           </div>
         )}
 
@@ -137,7 +184,7 @@ export function PosteDetalheSheet({ poste, onOpenChange, onAbrirAcao }: PosteDet
             variant="outline"
             size="sm"
             className="text-red-700"
-            onClick={() => onAbrirAcao(poste, "FISCALIZACAO")}
+            onClick={() => onAbrirAcao(posteParaAcao, "FISCALIZACAO")}
           >
             <ShieldAlert className="h-3.5 w-3.5" />
             Abrir Fiscalização
@@ -147,7 +194,7 @@ export function PosteDetalheSheet({ poste, onOpenChange, onAbrirAcao }: PosteDet
             variant="outline"
             size="sm"
             className="text-amber-700"
-            onClick={() => onAbrirAcao(poste, "ORDENAMENTO")}
+            onClick={() => onAbrirAcao(posteParaAcao, "ORDENAMENTO")}
           >
             <ClipboardList className="h-3.5 w-3.5" />
             Marcar para Ordenamento
@@ -158,38 +205,60 @@ export function PosteDetalheSheet({ poste, onOpenChange, onAbrirAcao }: PosteDet
           Ocupantes identificados
         </h3>
 
-        {loading && <p className="text-sm text-slate-500">Carregando...</p>}
+        {ehBase ? (
+          provedoresBase.length === 0 ? (
+            <EmptyState message="Nenhum provedor alocado neste poste." />
+          ) : (
+            <div className="space-y-2">
+              {provedoresBase.map((prov, i) => (
+                <div
+                  key={`${prov.CNPJ ?? prov.RAZAO_SOCIAL ?? i}`}
+                  className="rounded-lg border border-slate-200 bg-white p-3"
+                >
+                  <p className="truncate text-sm font-semibold text-slate-900" title={prov.RAZAO_SOCIAL ?? undefined}>
+                    {prov.RAZAO_SOCIAL ?? "Operadora não identificada"}
+                  </p>
+                  {prov.CNPJ && <p className="mt-0.5 text-xs text-slate-400">{formatarCnpj(prov.CNPJ)}</p>}
+                </div>
+              ))}
+            </div>
+          )
+        ) : (
+          <>
+            {loading && <p className="text-sm text-slate-500">Carregando...</p>}
 
-        {!loading && erro && <p className="text-sm text-destructive">{erro}</p>}
+            {!loading && erro && <p className="text-sm text-destructive">{erro}</p>}
 
-        {!loading && !erro && ocupacoes.length === 0 && (
-          <EmptyState message="Nenhuma ocupação registrada neste poste." />
-        )}
+            {!loading && !erro && ocupacoes.length === 0 && (
+              <EmptyState message="Nenhuma ocupação registrada neste poste." />
+            )}
 
-        {!loading && !erro && ocupacoes.length > 0 && (
-          <div className="space-y-2">
-            {ocupacoes.map((ocupacao) => (
-              <div key={ocupacao.ID} className="rounded-lg border border-slate-200 bg-white p-3">
-                <p className="truncate text-sm font-semibold text-slate-900" title={ocupacao.BOARD_NAME}>
-                  {ocupacao.BOARD_NAME}
-                </p>
-                {ocupacao.ORGANIZATION_NAME ? (
-                  <>
-                    <p className="mt-1 truncate text-sm text-slate-600" title={ocupacao.ORGANIZATION_NAME}>
-                      {ocupacao.ORGANIZATION_NAME}
+            {!loading && !erro && ocupacoes.length > 0 && (
+              <div className="space-y-2">
+                {ocupacoes.map((ocupacao) => (
+                  <div key={ocupacao.ID} className="rounded-lg border border-slate-200 bg-white p-3">
+                    <p className="truncate text-sm font-semibold text-slate-900" title={ocupacao.BOARD_NAME}>
+                      {ocupacao.BOARD_NAME}
                     </p>
-                    {ocupacao.CNPJ && (
-                      <p className="mt-0.5 text-xs text-slate-400">{formatarCnpj(ocupacao.CNPJ)}</p>
+                    {ocupacao.ORGANIZATION_NAME ? (
+                      <>
+                        <p className="mt-1 truncate text-sm text-slate-600" title={ocupacao.ORGANIZATION_NAME}>
+                          {ocupacao.ORGANIZATION_NAME}
+                        </p>
+                        {ocupacao.CNPJ && (
+                          <p className="mt-0.5 text-xs text-slate-400">{formatarCnpj(ocupacao.CNPJ)}</p>
+                        )}
+                      </>
+                    ) : (
+                      <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
+                        Não identificado
+                      </span>
                     )}
-                  </>
-                ) : (
-                  <span className="mt-1 inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
-                    Não identificado
-                  </span>
-                )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle, Building2, CheckCircle2, Circle, Database, Flame, Gauge, Hexagon, Info, Layers, ListChecks, MapPin, MousePointerSquareDashed, Search, Square, X } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Circle, Database, Flame, Gauge, Hexagon, Info, Layers, ListChecks, MapPin, MousePointerSquareDashed, Search, Square, X } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { KpiCard } from "@/components/comercial/kpi-card"
@@ -957,8 +957,10 @@ function MapaPostesConteudo() {
               onSelecionarPoste={(poste) => {
                 const naBase = basePorBarramento[poste.BARRAMENTO]
                 if (naBase) {
+                  setPosteSelecionado(null)
                   setBasePosteSel(naBase)
                 } else {
+                  setBasePosteSel(null)
                   setPosteSelecionado(poste)
                 }
               }}
@@ -980,111 +982,20 @@ function MapaPostesConteudo() {
             />
             <PosteDetalheSheet
               poste={posteSelecionado}
+              basePoste={basePosteSel}
               onOpenChange={(open) => {
                 if (!open) {
                   setPosteSelecionado(null)
                   setPosteDestaque(null)
+                  setBasePosteSel(null)
                 }
               }}
               onAbrirAcao={(poste, tipo) => {
                 setPosteSelecionado(null)
+                setBasePosteSel(null)
                 abrirAcaoPoste(poste, tipo)
               }}
             />
-
-            {basePosteSel && (
-              <div className="absolute inset-y-0 right-0 z-[1000] flex w-full flex-col border-l border-slate-200 bg-white shadow-xl sm:w-[360px]">
-                <div className="flex items-start justify-between gap-2 border-b border-slate-100 p-4">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-sm font-semibold text-slate-900">
-                      Poste {basePosteSel.DE_BARRAMENTO}
-                    </h2>
-                    <p className="text-xs text-slate-500">
-                      NU_PG_ID {basePosteSel.NU_PG_ID} · {basePosteSel.LOCALIDADE ?? "—"} · {basePosteSel.MUNICIPIO ?? "—"}
-                    </p>
-                  </div>
-                  <Button type="button" variant="ghost" size="icon-sm" onClick={() => setBasePosteSel(null)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4">
-                  {basePosteSel.PROVEDORES.length === 0 ? (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                      <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
-                        <AlertTriangle className="h-4 w-4" />
-                        Sem provedor associado
-                      </p>
-                      <p className="mt-1 text-xs text-amber-700">
-                        Nenhuma ocupação de terceiro identificada neste poste. Candidato a fiscalização.
-                      </p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="mt-3"
-                        disabled={gerandoFiscalizacao}
-                        onClick={() => {
-                          setSelecaoArea({
-                            bounds: {
-                              min_x: basePosteSel.NU_LONGITUDE - 0.0003,
-                              max_x: basePosteSel.NU_LONGITUDE + 0.0003,
-                              min_y: basePosteSel.NU_LATITUDE - 0.0003,
-                              max_y: basePosteSel.NU_LATITUDE + 0.0003,
-                            },
-                            postes: [
-                              {
-                                BARRAMENTO: basePosteSel.DE_BARRAMENTO,
-                                X: basePosteSel.NU_LONGITUDE,
-                                Y: basePosteSel.NU_LATITUDE,
-                                TEM_OCUPACAO_IDENTIFICADA: "N",
-                              },
-                            ],
-                          })
-                          gerarFiscalizacaoBase()
-                        }}
-                      >
-                        Gerar fiscalização deste poste
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Provedores alocados ({basePosteSel.PROVEDORES.length})
-                      </p>
-                      <ul className="mt-2 space-y-2">
-                        {basePosteSel.PROVEDORES.map((prov, i) => (
-                          <li
-                            key={`${prov.CNPJ ?? prov.RAZAO_SOCIAL ?? i}`}
-                            className="flex items-start gap-2 rounded-lg border border-slate-200 p-2.5"
-                          >
-                            <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-slate-800">
-                                {prov.RAZAO_SOCIAL ?? "Operadora não identificada"}
-                              </p>
-                              {prov.CNPJ && <p className="font-mono text-xs text-slate-400">{prov.CNPJ}</p>}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-
-                  <dl className="mt-4 space-y-1.5 border-t border-slate-100 pt-3 text-xs text-slate-600">
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-slate-400">Coordenadas</dt>
-                      <dd className="font-mono">
-                        {basePosteSel.NU_LATITUDE.toFixed(6)}, {basePosteSel.NU_LONGITUDE.toFixed(6)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-slate-400">Atualizado em</dt>
-                      <dd>{formatarDataCurta(basePosteSel.DATA_ATUALIZACAO)}</dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
-            )}
 
             {acaoSelecionada && (
               <div className="absolute left-3 top-3 z-[1000] w-[300px] rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
