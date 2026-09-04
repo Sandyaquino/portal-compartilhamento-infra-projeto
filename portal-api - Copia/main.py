@@ -212,6 +212,7 @@ from routers.projetos import router as projetos_router
 from routers.tarefas import router as tarefas_router
 from routers.base_postes import router as base_postes_router
 from routers.resultado_financeiro import router as resultado_financeiro_router
+from routers.carteira import router as carteira_router
 
 app.include_router(campo_router)
 app.include_router(dashboards_router)
@@ -227,6 +228,7 @@ app.include_router(projetos_router)
 app.include_router(tarefas_router)
 app.include_router(base_postes_router)
 app.include_router(resultado_financeiro_router)
+app.include_router(carteira_router)
 
 # Reexportados para compatibilidade com quem importa direto de main
 # (inclui os testes automatizados de tests/test_auth_token.py).
