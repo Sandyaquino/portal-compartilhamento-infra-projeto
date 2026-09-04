@@ -197,10 +197,10 @@ function basePosteTemProvedor(deBarramento) {
 // gerador de Carteira de Serviço.
 // =====================================================
 const eps = [
-  { ID_EPS: 1, NOME: "ORCA Serviços de Campo Ltda", CNPJ: "10.111.222/0001-33", TIPO_SERVICO: "AMBOS", ATIVO: "S" },
-  { ID_EPS: 2, NOME: "Nordeste Redes Engenharia S.A.", CNPJ: "20.222.333/0001-44", TIPO_SERVICO: "FISCALIZACAO", ATIVO: "S" },
-  { ID_EPS: 3, NOME: "Bahia Infra Montagens Ltda", CNPJ: "30.333.444/0001-55", TIPO_SERVICO: "AMBOS", ATIVO: "S" },
-  { ID_EPS: 4, NOME: "Litoral Vistorias e Serviços", CNPJ: "40.444.555/0001-66", TIPO_SERVICO: "FISCALIZACAO", ATIVO: "S" },
+  { ID_EPS: 1, NOME: "CADIC", CNPJ: "10.111.222/0001-33", TIPO_SERVICO: "AMBOS", ATIVO: "S" },
+  { ID_EPS: 2, NOME: "ELEKTRA", CNPJ: "20.222.333/0001-44", TIPO_SERVICO: "AMBOS", ATIVO: "S" },
+  { ID_EPS: 3, NOME: "ORC", CNPJ: "30.333.444/0001-55", TIPO_SERVICO: "AMBOS", ATIVO: "S" },
+  { ID_EPS: 4, NOME: "DINAMO", CNPJ: "40.444.555/0001-66", TIPO_SERVICO: "AMBOS", ATIVO: "S" },
 ]
 
 const equipesCampo = []
@@ -227,33 +227,22 @@ let seqEquipeCampo = 0
   })
 }
 
-// Area de atuacao das EPS (tabela de suporte): relaciona EPS com
-// SUPERINTENDENCIA -> UTD -> SETOR -> MUNICIPIO. Espelha
-// sql/PORTAL_COMPARTILHAMENTO_EPS_ATUACAO.sql. E a fonte de "qual EPS
-// atende cada municipio" no gerador de carteira.
-const ORG_MUNICIPIO = {
-  SALVADOR: { SUPERINTENDENCIA: "Metropolitana", UTD: "UTD Salvador", SETOR: "SSA-Centro", eps: [1, 2] },
-  CAMACARI: { SUPERINTENDENCIA: "Metropolitana", UTD: "UTD Camacari", SETOR: "CAM-Polo", eps: [1, 3] },
-  "FEIRA DE SANTANA": { SUPERINTENDENCIA: "Leste", UTD: "UTD Feira de Santana", SETOR: "FSA-Centro", eps: [3] },
-  ILHEUS: { SUPERINTENDENCIA: "Sul", UTD: "UTD Ilheus", SETOR: "ILH-Litoral", eps: [4] },
-  "PORTO SEGURO": { SUPERINTENDENCIA: "Extremo Sul", UTD: "UTD Porto Seguro", SETOR: "PSE-Costa", eps: [4, 2] },
+// Area de atuacao das EPS (tabela de suporte): relaciona cada EPS aos
+// municipios onde atende. Espelha sql/PORTAL_COMPARTILHAMENTO_EPS_ATUACAO.sql.
+// E a fonte de "qual EPS atende cada municipio" no gerador de carteira -
+// o usuario escolhe a EPS e os municipios se restringem a area dela.
+const EPS_MUNICIPIOS = {
+  1: ["SALVADOR", "CAMACARI"],              // CADIC
+  2: ["SALVADOR", "FEIRA DE SANTANA"],      // ELEKTRA
+  3: ["CAMACARI", "PORTO SEGURO"],          // ORC
+  4: ["ILHEUS", "PORTO SEGURO"],            // DINAMO
 }
 const epsAtuacao = []
 {
   let seq = 0
-  for (const mun of MUNICIPIOS_BASE) {
-    const org = ORG_MUNICIPIO[mun.nome]
-    if (!org) continue
-    for (const idEps of org.eps) {
-      epsAtuacao.push({
-        ID: ++seq,
-        ID_EPS: idEps,
-        SUPERINTENDENCIA: org.SUPERINTENDENCIA,
-        UTD: org.UTD,
-        SETOR: org.SETOR,
-        MUNICIPIO: mun.nome,
-        ATIVO: "S",
-      })
+  for (const [idEps, muns] of Object.entries(EPS_MUNICIPIOS)) {
+    for (const mun of muns) {
+      epsAtuacao.push({ ID: ++seq, ID_EPS: Number(idEps), MUNICIPIO: mun, ATIVO: "S" })
     }
   }
 }

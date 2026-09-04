@@ -71,12 +71,6 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
   const [equipes, setEquipes] = useState<EquipeCampo[]>([])
   const [areas, setAreas] = useState<AreaMunicipio[]>([])
 
-  // Filtro em cascata pela estrutura organizacional (tabela de suporte
-  // EPS_ATUACAO): Superintendência -> UTD -> Setor -> restringe municípios e EPS.
-  const [superintendencia, setSuperintendencia] = useState("")
-  const [utd, setUtd] = useState("")
-  const [setor, setSetor] = useState("")
-
   const [titulo, setTitulo] = useState("")
   const [frequencia, setFrequencia] = useState<FrequenciaCarteira>("SEMANAL")
   const [dataInicio, setDataInicio] = useState(HOJE)
@@ -115,9 +109,6 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
     setPreview(null)
     setErro(null)
     setConflito(null)
-    setSuperintendencia("")
-    setUtd("")
-    setSetor("")
 
     const get = (url: string) => fetch(`${API_BASE_URL}${url}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : []))
     Promise.all([
@@ -159,116 +150,44 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
     () => barramentosTexto.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean),
     [barramentosTexto],
   )
-  // ---- filtro em cascata pela estrutura organizacional ----
+  // ---- filtro direto pela EPS (tabela de suporte EPS x MUNICIPIO) ----
   const temAtuacao = epsAtuacao.length > 0
-  const filtroOrgAtivo = Boolean(superintendencia || utd || setor)
 
-  const superintendencias = useMemo(
-    () => Array.from(new Set(epsAtuacao.map((a) => a.SUPERINTENDENCIA).filter(Boolean))).sort(),
-    [epsAtuacao],
-  )
-  const utds = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          epsAtuacao
-            .filter((a) => !superintendencia || a.SUPERINTENDENCIA === superintendencia)
-            .map((a) => a.UTD)
-            .filter(Boolean),
-        ),
-      ).sort(),
-    [epsAtuacao, superintendencia],
-  )
-  const setores = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          epsAtuacao
-            .filter(
-              (a) =>
-                (!superintendencia || a.SUPERINTENDENCIA === superintendencia) && (!utd || a.UTD === utd),
-            )
-            .map((a) => a.SETOR)
-            .filter(Boolean),
-        ),
-      ).sort(),
-    [epsAtuacao, superintendencia, utd],
-  )
+  // Municípios que a EPS escolhida atende. null = sem restrição.
+  const municipiosDaEps = useMemo(() => {
+    if (!temAtuacao || idEps == null) return null
+    const alvo = epsAtuacao.filter((a) => a.ID_EPS === idEps).map((a) => a.MUNICIPIO.toUpperCase())
+    return alvo.length ? new Set(alvo) : new Set<string>()
+  }, [temAtuacao, epsAtuacao, idEps])
 
-  const atuacaoNoFiltro = useMemo(
-    () =>
-      epsAtuacao.filter(
-        (a) =>
-          (!superintendencia || a.SUPERINTENDENCIA === superintendencia) &&
-          (!utd || a.UTD === utd) &&
-          (!setor || a.SETOR === setor),
-      ),
-    [epsAtuacao, superintendencia, utd, setor],
-  )
-
-  const municipiosPermitidos = useMemo(
-    () => (temAtuacao && filtroOrgAtivo ? new Set(atuacaoNoFiltro.map((a) => a.MUNICIPIO.toUpperCase())) : null),
-    [temAtuacao, filtroOrgAtivo, atuacaoNoFiltro],
-  )
   const areasVisiveis = useMemo(
-    () =>
-      municipiosPermitidos
-        ? areas.filter((a) => municipiosPermitidos.has(a.MUNICIPIO.toUpperCase()))
-        : areas,
-    [areas, municipiosPermitidos],
+    () => (municipiosDaEps ? areas.filter((a) => municipiosDaEps.has(a.MUNICIPIO.toUpperCase())) : areas),
+    [areas, municipiosDaEps],
   )
 
-  // EPS elegíveis: as que atuam nos municípios selecionados; sem municípios,
-  // as que atuam no escopo do filtro em cascata. Com contexto organizacional.
-  const epsElegiveis = useMemo(() => {
-    if (!temAtuacao) return epsLista.map((e) => ({ ID_EPS: e.ID_EPS, NOME: e.NOME, contexto: "" }))
-    const alvo = municipios.length ? new Set(municipios.map((m) => m.toUpperCase())) : null
-    const porEps = new Map<number, { nome: string; sup: Set<string>; utds: Set<string>; setores: Set<string> }>()
-    for (const a of atuacaoNoFiltro) {
-      if (alvo && !alvo.has(a.MUNICIPIO.toUpperCase())) continue
-      const cur = porEps.get(a.ID_EPS) ?? { nome: a.NOME, sup: new Set(), utds: new Set(), setores: new Set() }
-      cur.sup.add(a.SUPERINTENDENCIA)
-      cur.utds.add(a.UTD)
-      cur.setores.add(a.SETOR)
-      porEps.set(a.ID_EPS, cur)
-    }
-    return Array.from(porEps.entries())
-      .map(([id, v]) => ({
-        ID_EPS: id,
-        NOME: v.nome,
-        contexto: [[...v.sup].join("/"), [...v.utds].join("/"), [...v.setores].join("/")].filter(Boolean).join(" · "),
-      }))
-      .sort((a, b) => a.NOME.localeCompare(b.NOME))
-  }, [temAtuacao, epsLista, atuacaoNoFiltro, municipios])
-
-  const epsContexto = useMemo(
-    () => epsElegiveis.find((e) => e.ID_EPS === idEps)?.contexto ?? "",
-    [epsElegiveis, idEps],
-  )
+  const municipiosDaEpsLabel = useMemo(() => {
+    if (idEps == null) return ""
+    return epsAtuacao
+      .filter((a) => a.ID_EPS === idEps)
+      .map((a) => a.MUNICIPIO)
+      .sort((a, b) => a.localeCompare(b))
+      .join(", ")
+  }, [epsAtuacao, idEps])
 
   const localidadesDisponiveis = useMemo(
     () => areas.filter((a) => municipios.includes(a.MUNICIPIO)).flatMap((a) => a.localidades),
     [areas, municipios],
   )
 
-  // Poda seleções que saíram do escopo quando o filtro em cascata muda.
+  // Ao trocar de EPS, remove municípios que ela não atende.
   useEffect(() => {
-    if (!municipiosPermitidos) return
+    if (!municipiosDaEps) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMunicipios((prev) => {
-      const filtrado = prev.filter((m) => municipiosPermitidos.has(m.toUpperCase()))
+      const filtrado = prev.filter((m) => municipiosDaEps.has(m.toUpperCase()))
       return filtrado.length === prev.length ? prev : filtrado
     })
-  }, [municipiosPermitidos])
-
-  useEffect(() => {
-    if (!temAtuacao || idEps == null) return
-    if (!epsElegiveis.some((e) => e.ID_EPS === idEps)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setIdEps(null)
-      setIdsEquipes([])
-    }
-  }, [temAtuacao, epsElegiveis, idEps])
+  }, [municipiosDaEps])
 
   function toggle<T>(arr: T[], v: T): T[] {
     return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]
@@ -384,36 +303,29 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
           </div>
 
           <label className="grid gap-1 text-sm">
-            <span className="font-medium text-slate-700">
-              EPS{" "}
-              <span className="text-slate-400">
-                ({epsElegiveis.length}
-                {temAtuacao && (municipios.length || filtroOrgAtivo) ? " no escopo" : ""})
-              </span>
-            </span>
+            <span className="font-medium text-slate-700">EPS</span>
             <select
               value={idEps ?? ""}
               onChange={(e) => {
                 setIdEps(e.target.value ? Number(e.target.value) : null)
                 setIdsEquipes([])
+                setPreview(null)
               }}
               className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
             >
               <option value="">Selecione a EPS</option>
-              {epsElegiveis.map((ep) => (
-                <option key={ep.ID_EPS} value={ep.ID_EPS}>
-                  {ep.NOME}
-                  {ep.contexto ? ` — ${ep.contexto}` : ""}
-                </option>
+              {epsLista.map((ep) => (
+                <option key={ep.ID_EPS} value={ep.ID_EPS}>{ep.NOME}</option>
               ))}
             </select>
-            {idEps != null && epsContexto && (
-              <span className="text-xs text-slate-500">Atua em: {epsContexto}</span>
-            )}
-            {temAtuacao && epsElegiveis.length === 0 && (
-              <span className="text-xs text-amber-600">
-                Nenhuma EPS cadastrada para esse escopo. Ajuste o filtro ou os municípios.
-              </span>
+            {temAtuacao && idEps != null && (
+              municipiosDaEpsLabel ? (
+                <span className="text-xs text-slate-500">Atua em: {municipiosDaEpsLabel}</span>
+              ) : (
+                <span className="text-xs text-amber-600">
+                  Essa EPS não tem municípios cadastrados na tabela de atuação.
+                </span>
+              )
             )}
           </label>
 
@@ -456,55 +368,6 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
 
           {modo === "AUTOMATICA" ? (
             <>
-              {temAtuacao && (
-                <div className="grid gap-1 text-sm">
-                  <span className="font-medium text-slate-700">
-                    Filtrar por estrutura <span className="text-slate-400">(Superintendência → UTD → Setor)</span>
-                  </span>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <select
-                      value={superintendencia}
-                      onChange={(e) => { setSuperintendencia(e.target.value); setUtd(""); setSetor(""); setPreview(null) }}
-                      className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
-                    >
-                      <option value="">Todas as superintendências</option>
-                      {superintendencias.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={utd}
-                      onChange={(e) => { setUtd(e.target.value); setSetor(""); setPreview(null) }}
-                      className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
-                    >
-                      <option value="">Todas as UTDs</option>
-                      {utds.map((u) => (
-                        <option key={u} value={u}>{u}</option>
-                      ))}
-                    </select>
-                    <select
-                      value={setor}
-                      onChange={(e) => { setSetor(e.target.value); setPreview(null) }}
-                      className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
-                    >
-                      <option value="">Todos os setores</option>
-                      {setores.map((s) => (
-                        <option key={s} value={s}>{s}</option>
-                      ))}
-                    </select>
-                  </div>
-                  {filtroOrgAtivo && (
-                    <button
-                      type="button"
-                      onClick={() => { setSuperintendencia(""); setUtd(""); setSetor("") }}
-                      className="w-fit text-xs text-primary hover:underline"
-                    >
-                      Limpar filtro de estrutura
-                    </button>
-                  )}
-                </div>
-              )}
-
               <label className="grid gap-1 text-sm">
                 <span className="font-medium text-slate-700">Lógica de priorização</span>
                 <select value={estrategia} onChange={(e) => { setEstrategia(e.target.value); setPreview(null) }} className="h-9 rounded-lg border border-slate-300 px-2 text-sm">
@@ -523,13 +386,15 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
               <div className="grid gap-1 text-sm">
                 <span className="font-medium text-slate-700">
                   Municípios de atuação ({municipios.length})
-                  {filtroOrgAtivo && (
-                    <span className="text-slate-400"> · {areasVisiveis.length} no filtro</span>
+                  {municipiosDaEps && (
+                    <span className="text-slate-400"> · área da EPS ({areasVisiveis.length})</span>
                   )}
                 </span>
                 <div className="flex flex-wrap gap-1.5 rounded-lg border border-slate-200 p-2">
                   {areasVisiveis.length === 0 && (
-                    <span className="text-xs text-slate-400">Nenhum município nesse filtro de estrutura.</span>
+                    <span className="text-xs text-slate-400">
+                      {idEps == null ? "Selecione a EPS para ver os municípios." : "Nenhum município na área dessa EPS."}
+                    </span>
                   )}
                   {areasVisiveis.map((a) => (
                     <button

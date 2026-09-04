@@ -40,15 +40,11 @@ export type EpsCarteira = {
   TIPO_SERVICO: string
 }
 
-// Tabela de suporte: relaciona a EPS com a estrutura organizacional
-// (SUPERINTENDENCIA -> UTD -> SETOR -> MUNICIPIO). Uma linha por
-// (EPS, MUNICIPIO). Fonte do filtro em cascata do gerador de carteira.
+// Tabela de suporte EPS x MUNICIPIO. O usuário escolhe a EPS no gerador
+// de carteira e os municípios disponíveis se restringem à área dela.
 export type EpsAtuacao = {
   ID_EPS: number
   NOME: string
-  SUPERINTENDENCIA: string
-  UTD: string
-  SETOR: string
   MUNICIPIO: string
 }
 

@@ -525,16 +525,13 @@ function registrar(router) {
     enviarJson(res, 200, db.eps.filter((e) => e.ATIVO === "S")),
   )
 
-  // Area de atuacao das EPS: SUPERINTENDENCIA -> UTD -> SETOR -> MUNICIPIO -> EPS.
-  // Filtros opcionais (?superintendencia=&utd=&setor=&municipios=A,B) para
-  // o filtro em cascata do gerador de carteira.
+  // Area de atuacao das EPS: relacao EPS -> MUNICIPIO. Filtros opcionais
+  // (?id_eps=1 e/ou ?municipios=A,B). O gerador escolhe a EPS e restringe
+  // os municipios a area dela.
   router.get("/api/carteira/eps-atuacao", (req, res, ctx) => {
-    const q = (chave) => (ctx.query.get(chave) || "").trim()
-    const superintendencia = q("superintendencia")
-    const utd = q("utd")
-    const setor = q("setor")
+    const idEps = ctx.query.get("id_eps") ? Number(ctx.query.get("id_eps")) : null
     const municipios = new Set(
-      q("municipios")
+      (ctx.query.get("municipios") || "")
         .split(",")
         .map((m) => m.trim().toUpperCase())
         .filter(Boolean),
@@ -543,26 +540,10 @@ function registrar(router) {
     const nomeEps = new Map(db.eps.map((e) => [e.ID_EPS, e.NOME]))
     const lista = db.epsAtuacao
       .filter((a) => a.ATIVO === "S" && epsAtivas.has(a.ID_EPS))
-      .filter((a) => !superintendencia || a.SUPERINTENDENCIA === superintendencia)
-      .filter((a) => !utd || a.UTD === utd)
-      .filter((a) => !setor || a.SETOR === setor)
+      .filter((a) => !idEps || a.ID_EPS === idEps)
       .filter((a) => !municipios.size || municipios.has(String(a.MUNICIPIO).toUpperCase()))
-      .map((a) => ({
-        ID_EPS: a.ID_EPS,
-        NOME: nomeEps.get(a.ID_EPS) || `EPS ${a.ID_EPS}`,
-        SUPERINTENDENCIA: a.SUPERINTENDENCIA,
-        UTD: a.UTD,
-        SETOR: a.SETOR,
-        MUNICIPIO: a.MUNICIPIO,
-      }))
-      .sort(
-        (a, b) =>
-          a.SUPERINTENDENCIA.localeCompare(b.SUPERINTENDENCIA) ||
-          a.UTD.localeCompare(b.UTD) ||
-          a.SETOR.localeCompare(b.SETOR) ||
-          a.MUNICIPIO.localeCompare(b.MUNICIPIO) ||
-          a.NOME.localeCompare(b.NOME),
-      )
+      .map((a) => ({ ID_EPS: a.ID_EPS, NOME: nomeEps.get(a.ID_EPS) || `EPS ${a.ID_EPS}`, MUNICIPIO: a.MUNICIPIO }))
+      .sort((a, b) => a.NOME.localeCompare(b.NOME) || a.MUNICIPIO.localeCompare(b.MUNICIPIO))
     enviarJson(res, 200, lista)
   })
 
