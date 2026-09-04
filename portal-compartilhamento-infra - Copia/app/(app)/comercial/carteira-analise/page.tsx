@@ -94,6 +94,33 @@ function formatarPrazo(prazo?: string | null) {
   return { label, className: "bg-slate-100 text-slate-600 border-slate-200", atrasado: false }
 }
 
+type SituacaoPrazo = "ATRASADO" | "VENCENDO" | "DENTRO_PRAZO" | "SEM_PRAZO"
+
+// Mesmo corte usado em formatarPrazo (atrasado / vencendo em até 3 dias /
+// dentro do prazo), como uma categoria só — para poder filtrar por ela.
+function situacaoPrazoItem(prazo: string | null): SituacaoPrazo {
+  if (!prazo) return "SEM_PRAZO"
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  const data = new Date(`${prazo}T00:00:00`)
+  if (Number.isNaN(data.getTime())) return "SEM_PRAZO"
+  const diffDias = Math.round((data.getTime() - hoje.getTime()) / 86400000)
+  if (diffDias < 0) return "ATRASADO"
+  if (diffDias <= 3) return "VENCENDO"
+  return "DENTRO_PRAZO"
+}
+
+type FiltroPrazo = "TODOS" | "ATRASADOS" | "VENCENDO" | "DENTRO_PRAZO" | "FORA_PRAZO"
+
+// "Atrasados" e "Fora do Prazo" são o mesmo estado (prazo já vencido) —
+// dois rótulos para o mesmo filtro, como pedido.
+function bateFiltroPrazo(filtro: FiltroPrazo, situacao: SituacaoPrazo): boolean {
+  if (filtro === "TODOS") return true
+  if (filtro === "ATRASADOS" || filtro === "FORA_PRAZO") return situacao === "ATRASADO"
+  if (filtro === "VENCENDO") return situacao === "VENCENDO"
+  return situacao === "DENTRO_PRAZO"
+}
+
 // PRIORIDADE é texto livre no banco (sem vocabulário fixo) - só colorimos os
 // valores mais comuns que já aparecem nos formulários de cadastro; qualquer
 // outro texto cai no estilo neutro.
@@ -171,6 +198,7 @@ export default function CarteiraAnalisePage() {
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState("")
   const [filtroResponsavel, setFiltroResponsavel] = useState<string | null>(null)
+  const [filtroPrazo, setFiltroPrazo] = useState<FiltroPrazo>("TODOS")
   const [notification, setNotification] = useState<Notification | null>(null)
   const [itemEditando, setItemEditando] = useState<ItemCarteira | null>(null)
   const [modalGerarAberto, setModalGerarAberto] = useState(false)
@@ -266,8 +294,12 @@ export default function CarteiraAnalisePage() {
       resultado = resultado.filter((item) => (item.responsavel?.trim() || SEM_RESPONSAVEL) === filtroResponsavel)
     }
 
+    if (filtroPrazo !== "TODOS") {
+      resultado = resultado.filter((item) => bateFiltroPrazo(filtroPrazo, situacaoPrazoItem(item.prazo)))
+    }
+
     return resultado
-  }, [itens, busca, filtroResponsavel])
+  }, [itens, busca, filtroResponsavel, filtroPrazo])
 
   const colunas = useMemo(() => {
     const grupos = new Map<string, ItemCarteira[]>()
@@ -327,6 +359,19 @@ export default function CarteiraAnalisePage() {
       const diffDias = Math.round((data.getTime() - hoje.getTime()) / 86400000)
       return diffDias >= 0 && diffDias <= 3
     }).length
+  }, [itens])
+
+  // Contagem por situação de prazo, para os badges do filtro logo abaixo.
+  const contagemPrazo = useMemo(() => {
+    const c = { total: itens.length, atrasado: 0, vencendo: 0, dentroPrazo: 0, semPrazo: 0 }
+    for (const item of itens) {
+      const situacao = situacaoPrazoItem(item.prazo)
+      if (situacao === "ATRASADO") c.atrasado++
+      else if (situacao === "VENCENDO") c.vencendo++
+      else if (situacao === "DENTRO_PRAZO") c.dentroPrazo++
+      else c.semPrazo++
+    }
+    return c
   }, [itens])
 
   async function salvarAtribuicao(valores: AtribuirAnaliseValues) {
@@ -522,6 +567,36 @@ export default function CarteiraAnalisePage() {
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+        {(
+          [
+            ["TODOS", "Todos", contagemPrazo.total],
+            ["ATRASADOS", "Atrasados", contagemPrazo.atrasado],
+            ["VENCENDO", "Vencendo em Breve", contagemPrazo.vencendo],
+            ["DENTRO_PRAZO", "Dentro do Prazo", contagemPrazo.dentroPrazo],
+            ["FORA_PRAZO", "Fora do Prazo", contagemPrazo.atrasado],
+          ] as [FiltroPrazo, string, number][]
+        ).map(([valor, rotulo, contagem]) => (
+          <button
+            key={valor}
+            type="button"
+            onClick={() => setFiltroPrazo(valor)}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              filtroPrazo === valor ? "bg-primary text-white" : "text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            {rotulo}
+            <span
+              className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
+                filtroPrazo === valor ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              {contagem}
+            </span>
+          </button>
+        ))}
       </div>
 
       {loading && (
