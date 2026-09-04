@@ -530,6 +530,12 @@ def _garantir_tabelas_projeto(cursor) -> None:
                 GEO_VALIDADA NVARCHAR(1) DEFAULT 'N',
                 POSTE_LOCALIZADO NVARCHAR(1) DEFAULT 'N',
                 OBSERVACAO NVARCHAR(1000),
+                OCUPACAO_TIPO NVARCHAR(20),
+                ESPECIFICACAO_POSTE NVARCHAR(40),
+                FIXACAO NVARCHAR(20),
+                CORDOALHA NVARCHAR(1),
+                ANGULO DECIMAL(6,2),
+                ESFORCO_RESULTANTE_KGF DECIMAL(10,2),
                 CREATED_AT LONGDATE CS_LONGDATE,
                 UPDATED_AT LONGDATE CS_LONGDATE,
                 PRIMARY KEY (ID_PROJETO_POSTE)
@@ -537,6 +543,27 @@ def _garantir_tabelas_projeto(cursor) -> None:
             UNLOAD PRIORITY 5 AUTO MERGE
             """
         )
+
+    # PROJETO_POSTE ja existia sem as colunas da Planilha de Postes -> ALTER guardado.
+    try:
+        cursor.execute(f"SELECT OCUPACAO_TIPO FROM {TB_POSTE} WHERE 1 = 0")
+        cursor.fetchone()
+    except Exception:
+        try:
+            cursor.execute(
+                f"""
+                ALTER TABLE {TB_POSTE} ADD (
+                    OCUPACAO_TIPO NVARCHAR(20),
+                    ESPECIFICACAO_POSTE NVARCHAR(40),
+                    FIXACAO NVARCHAR(20),
+                    CORDOALHA NVARCHAR(1),
+                    ANGULO DECIMAL(6,2),
+                    ESFORCO_RESULTANTE_KGF DECIMAL(10,2)
+                )
+                """
+            )
+        except Exception:
+            pass
 
     try:
         cursor.execute(f"SELECT COUNT(*) FROM {TB_ANALISE}")
@@ -1183,6 +1210,109 @@ def atribuir_projeto(id_projeto: int, payload: dict = Body(...)):
         if conn:
             conn.rollback()
         raise HTTPException(status_code=500, detail=f"Erro ao atribuir: {error}")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@router.post("/api/projetos/{id_projeto}/postes/importar", response_model=dict)
+def importar_planilha_postes(id_projeto: int, payload: dict = Body(...)):
+    """Importa a Planilha de Postes do provedor (linhas ja parseadas no front)."""
+    linhas = (payload or {}).get("linhas") or []
+    if not isinstance(linhas, list) or not linhas:
+        raise HTTPException(status_code=400, detail="Nenhuma linha para importar")
+
+    def _n(v: Any) -> Optional[float]:
+        if v is None or v == "":
+            return None
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    conn = None
+    cursor = None
+    try:
+        conn = main.get_connection()
+        cursor = conn.cursor()
+        _garantir_tabelas_projeto(cursor)
+        cursor.execute(f"SELECT MUNICIPIO, UF, QTD_POSTES_INFORMADA FROM {TB_PROJETO} WHERE ID_PROJETO = ?", [id_projeto])
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Projeto não encontrado")
+        mun_proj, uf_proj, qtd_inf = row[0], row[1], int(row[2] or 0)
+
+        substituidos = 0
+        if payload.get("substituir") is True:
+            cursor.execute(f"SELECT COUNT(*) FROM {TB_POSTE} WHERE ID_PROJETO = ?", [id_projeto])
+            substituidos = int(cursor.fetchone()[0] or 0)
+            cursor.execute(f"DELETE FROM {TB_POSTE} WHERE ID_PROJETO = ?", [id_projeto])
+
+        criados = 0
+        ignorados = 0
+        for i, r in enumerate(linhas):
+            r = r or {}
+            lat = _n(r.get("latitude"))
+            lng = _n(r.get("longitude"))
+            ident = str(r.get("n_poste") or "").strip() or None
+            if not ident and lat is None and lng is None:
+                ignorados += 1
+                continue
+            ocup = r.get("ocupacao") if r.get("ocupacao") in ("COMPARTILHADO", "NOVO") else None
+            cord = r.get("cordoalha") if r.get("cordoalha") in ("S", "N") else None
+            cursor.execute(
+                f"""
+                INSERT INTO {TB_POSTE}
+                (ID_PROJETO, IDENTIFICADOR_POSTE, BARRAMENTO, LATITUDE, LONGITUDE, MUNICIPIO, UF,
+                 LOGRADOURO, TIPO_OCUPACAO, QTD_PONTOS_FIXACAO, STATUS_ANALISE, GEO_VALIDADA, POSTE_LOCALIZADO,
+                 OCUPACAO_TIPO, ESPECIFICACAO_POSTE, FIXACAO, CORDOALHA, ANGULO, ESFORCO_RESULTANTE_KGF,
+                 CREATED_AT, UPDATED_AT)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, 'PENDENTE', ?, 'N', ?, ?, ?, ?, ?, ?,
+                        CURRENT_UTCTIMESTAMP, CURRENT_UTCTIMESTAMP)
+                """,
+                [
+                    id_projeto,
+                    ident or f"PT-{id_projeto}-{i + 1:03d}",
+                    (str(r.get("barramento") or "").strip() or None),
+                    lat, lng,
+                    (str(r.get("municipio") or "").strip() or mun_proj),
+                    (uf_proj or "BA"),
+                    (str(r.get("endereco") or "").strip() or None),
+                    ("S" if lat is not None and lng is not None else "N"),
+                    ocup,
+                    (str(r.get("especificacao_poste") or "").strip() or None),
+                    (str(r.get("fixacao") or "").strip() or None),
+                    cord,
+                    _n(r.get("angulo")),
+                    _n(r.get("resultante")),
+                ],
+            )
+            criados += 1
+
+        cursor.execute(f"SELECT COUNT(*) FROM {TB_POSTE} WHERE ID_PROJETO = ?", [id_projeto])
+        total_postes = int(cursor.fetchone()[0] or 0)
+        if qtd_inf == 0:
+            cursor.execute(
+                f"UPDATE {TB_PROJETO} SET QTD_POSTES_INFORMADA = ? WHERE ID_PROJETO = ?", [total_postes, id_projeto]
+            )
+        _recalcular_contadores(cursor, id_projeto)
+        _add_historico(
+            cursor, id_projeto, "DOCUMENTO", None, None,
+            f"Planilha de Postes importada: {criados} poste(s)" + (f", {substituidos} substituído(s)." if substituidos else "."),
+            payload.get("usuario"),
+        )
+        conn.commit()
+        return {"success": True, "criados": criados, "total": len(linhas), "ignorados": ignorados, "substituidos": substituidos}
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except Exception as error:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao importar a planilha: {error}")
     finally:
         if cursor:
             cursor.close()

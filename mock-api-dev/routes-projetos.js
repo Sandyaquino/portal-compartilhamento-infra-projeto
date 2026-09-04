@@ -1017,6 +1017,81 @@ function registrar(router) {
     enviarJson(res, 200, { success: true, status: novo })
   })
 
+  // Importa a Planilha de Postes do provedor (linhas ja parseadas no front).
+  router.post("/api/projetos/:id/postes/importar", async (req, res, ctx) => {
+    const projeto = projetos.find((p) => p.ID_PROJETO === Number(ctx.params.id))
+    if (!projeto) return erroDetalhe(res, 404, "Projeto não encontrado")
+    const corpo = ctx.body || {}
+    const linhas = Array.isArray(corpo.linhas) ? corpo.linhas : []
+    if (!linhas.length) return erroDetalhe(res, 400, "Nenhuma linha para importar")
+
+    let substituidos = 0
+    if (corpo.substituir === true) {
+      for (let i = projetoPostes.length - 1; i >= 0; i--) {
+        if (projetoPostes[i].ID_PROJETO === projeto.ID_PROJETO) {
+          projetoPostes.splice(i, 1)
+          substituidos++
+        }
+      }
+    }
+
+    const num = (v) => (v === null || v === undefined || v === "" ? null : Number(v))
+    let criados = 0
+    let ignorados = 0
+    linhas.forEach((r, i) => {
+      const lat = num(r.latitude)
+      const lng = num(r.longitude)
+      const ident = String(r.n_poste ?? "").trim() || null
+      if (!ident && lat === null && lng === null) {
+        ignorados++
+        return
+      }
+      projetoPostes.push({
+        ID_PROJETO_POSTE: ++seqPoste,
+        ID_PROJETO: projeto.ID_PROJETO,
+        IDENTIFICADOR_POSTE: ident || `PT-${projeto.ID_PROJETO}-${String(i + 1).padStart(3, "0")}`,
+        BARRAMENTO: String(r.barramento ?? "").trim() || null,
+        ID_POSTE_PORTAL: null,
+        LATITUDE: lat,
+        LONGITUDE: lng,
+        MUNICIPIO: String(r.municipio ?? "").trim() || projeto.MUNICIPIO || null,
+        UF: projeto.UF || "BA",
+        LOGRADOURO: String(r.endereco ?? "").trim() || null,
+        BAIRRO: null,
+        CEP: null,
+        TIPO_OCUPACAO: null,
+        QTD_PONTOS_FIXACAO: 1,
+        STATUS_ANALISE: "PENDENTE",
+        MOTIVO_REPROVACAO: null,
+        GEO_VALIDADA: lat !== null && lng !== null ? "S" : "N",
+        POSTE_LOCALIZADO: "N",
+        OBSERVACAO: null,
+        OCUPACAO_TIPO: r.ocupacao === "COMPARTILHADO" || r.ocupacao === "NOVO" ? r.ocupacao : null,
+        ESPECIFICACAO_POSTE: String(r.especificacao_poste ?? "").trim() || null,
+        FIXACAO: String(r.fixacao ?? "").trim() || null,
+        CORDOALHA: r.cordoalha === "S" || r.cordoalha === "N" ? r.cordoalha : null,
+        ANGULO: num(r.angulo),
+        ESFORCO_RESULTANTE_KGF: num(r.resultante),
+        CREATED_AT: agora(),
+        UPDATED_AT: agora(),
+      })
+      criados++
+    })
+
+    projeto.QTD_POSTES_RECEBIDA = projetoPostes.filter((p) => p.ID_PROJETO === projeto.ID_PROJETO).length
+    if (!projeto.QTD_POSTES_INFORMADA) projeto.QTD_POSTES_INFORMADA = projeto.QTD_POSTES_RECEBIDA
+    recalcularContadores(projeto)
+    addHistorico(
+      projeto.ID_PROJETO,
+      "DOCUMENTO",
+      null,
+      null,
+      `Planilha de Postes importada: ${criados} poste(s)${substituidos ? `, ${substituidos} substituído(s)` : ""}.`,
+      corpo.usuario,
+    )
+    enviarJson(res, 200, { success: true, criados, total: linhas.length, ignorados, substituidos })
+  })
+
   router.patch("/api/projetos/:id/postes/:idPoste", async (req, res, ctx) => {
     const poste = projetoPostes.find(
       (p) => p.ID_PROJETO_POSTE === Number(ctx.params.idPoste) && p.ID_PROJETO === Number(ctx.params.id),

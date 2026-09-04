@@ -1,15 +1,17 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import Link from "next/link"
 import {
   ArrowLeft,
   CheckCircle2,
+  Download,
   ExternalLink,
   FileText,
   Link2,
   RefreshCcw,
+  Upload,
   XCircle,
 } from "lucide-react"
 
@@ -32,7 +34,8 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/table"
-import { API_BASE_URL } from "@/lib/config"
+import { apiFetch } from "@/lib/config"
+import { lerPlanilhaPostes, baixarModeloPlanilhaPostes } from "@/lib/imports/planilha-postes"
 import { useCurrentUser } from "@/hooks/use-current-user"
 import { AbasEnterprise, Def, DefGrid, Medidor, SecaoCard, StatusPill } from "@/components/projetos/projeto-ui"
 import {
@@ -95,11 +98,13 @@ export default function ProjetoDetalhePage() {
   const [intPasta, setIntPasta] = useState("")
   const [intEtapas, setIntEtapas] = useState({ crm: false, ccs: false, sp: false, esteira: false })
   const [salvandoInt, setSalvandoInt] = useState(false)
+  const [importandoPostes, setImportandoPostes] = useState(false)
+  const inputPostes = useRef<HTMLInputElement>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/projetos/${id}`, { cache: "no-store" })
+      const res = await apiFetch(`/api/projetos/${id}`, { cache: "no-store" })
       if (!res.ok) throw new Error((await res.text()) || "Erro ao carregar o projeto")
       setDados(await res.json())
     } catch (error) {
@@ -133,7 +138,7 @@ export default function ProjetoDetalhePage() {
   async function salvarIntegracao() {
     setSalvandoInt(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/projetos/${id}/integracao`, {
+      const res = await apiFetch(`/api/projetos/${id}/integracao`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -160,7 +165,7 @@ export default function ProjetoDetalhePage() {
   async function mudarStatus(novo: StatusProjeto) {
     setSalvandoStatus(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/projetos/${id}/status`, {
+      const res = await apiFetch(`/api/projetos/${id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: novo, usuario: user?.login ?? "dev.local" }),
@@ -176,7 +181,7 @@ export default function ProjetoDetalhePage() {
   }
 
   async function mudarDoc(idDoc: number, status: string, motivo?: string) {
-    const res = await fetch(`${API_BASE_URL}/api/projetos/${id}/documentos/${idDoc}`, {
+    const res = await apiFetch(`/api/projetos/${id}/documentos/${idDoc}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status, motivo, usuario: user?.login ?? "dev.local" }),
@@ -186,7 +191,7 @@ export default function ProjetoDetalhePage() {
   }
 
   async function mudarPoste(idPoste: number, status_analise: string) {
-    const res = await fetch(`${API_BASE_URL}/api/projetos/${id}/postes/${idPoste}`, {
+    const res = await apiFetch(`/api/projetos/${id}/postes/${idPoste}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status_analise }),
@@ -196,7 +201,7 @@ export default function ProjetoDetalhePage() {
   }
 
   async function registrarParecer(resultado: string) {
-    const res = await fetch(`${API_BASE_URL}/api/projetos/${id}/analise`, {
+    const res = await apiFetch(`/api/projetos/${id}/analise`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -214,6 +219,33 @@ export default function ProjetoDetalhePage() {
     if (!res.ok) return setNotification({ type: "error", message: `Erro ${res.status} ao registrar o parecer` })
     setNotification({ type: "success", message: "Parecer registrado." })
     await carregar()
+  }
+
+  async function importarPostes(file: File) {
+    setImportandoPostes(true)
+    setNotification(null)
+    try {
+      const { linhas, ignoradas, empresa } = await lerPlanilhaPostes(file)
+      const substituir = dados !== null && dados.postes.length > 0
+      const res = await apiFetch(`/api/projetos/${id}/postes/importar`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ linhas, substituir, usuario: user?.login ?? "dev.local" }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.detail || "Erro ao importar a planilha")
+      const extra = ignoradas ? ` · ${ignoradas} linha(s) ignorada(s) na leitura` : ""
+      setNotification({
+        type: "success",
+        message: `Planilha${empresa ? ` de ${empresa}` : ""}: ${body.criados} poste(s) importado(s)${body.substituidos ? `, ${body.substituidos} substituído(s)` : ""}${extra}.`,
+      })
+      await carregar()
+    } catch (error) {
+      setNotification({ type: "error", message: error instanceof Error ? error.message : "Erro ao importar a planilha" })
+    } finally {
+      setImportandoPostes(false)
+      if (inputPostes.current) inputPostes.current.value = ""
+    }
   }
 
   if (loading) return <div className="p-6 text-sm text-slate-500">Carregando projeto...</div>
@@ -505,18 +537,45 @@ export default function ProjetoDetalhePage() {
         {/* Postes */}
         {aba === "postes" && (
         <div className="pt-5">
-          <SecaoCard titulo="Postes do projeto" descricao="Relação recebida na planilha, com latitude/longitude e resultado da análise técnica.">
+          <SecaoCard
+            titulo="Postes do projeto"
+            descricao="Relação recebida na Planilha de Postes do provedor, com latitude/longitude e resultado da análise técnica."
+            acao={
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => baixarModeloPlanilhaPostes(projeto.RAZAO_SOCIAL, projeto.TITULO ?? "")}>
+                  <Download className="h-3.5 w-3.5" /> Modelo
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => inputPostes.current?.click()} disabled={importandoPostes}>
+                  <Upload className="h-3.5 w-3.5" /> {importandoPostes ? "Importando..." : "Importar planilha"}
+                </Button>
+                <input
+                  ref={inputPostes}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) importarPostes(f) }}
+                />
+              </div>
+            }
+          >
             <div className="mb-4 flex flex-wrap gap-2 text-xs">
               <span className="rounded-md bg-green-50 px-2 py-1 font-semibold text-green-700">{postesAprovados} aprovados</span>
               <span className="rounded-md bg-red-50 px-2 py-1 font-semibold text-red-700">{postesReprovados} reprovados</span>
               <span className="rounded-md bg-slate-100 px-2 py-1 font-semibold text-slate-600">{postesPendentes} pendentes</span>
               <span className="rounded-md bg-slate-100 px-2 py-1 font-semibold text-slate-600">{postes.filter((p) => p.GEO_VALIDADA === "S").length} com geo validada</span>
             </div>
+            {postes.length === 0 && (
+              <p className="mb-3 rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-400">
+                Nenhum poste ainda. Baixe o modelo, peça ao provedor a Planilha de Postes preenchida e importe aqui.
+              </p>
+            )}
             <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <Table className="min-w-[900px] text-xs">
+              <Table className="min-w-[1000px] text-xs">
                 <TableHeader className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                   <TableRow>
-                    <TableHead className="px-3 py-2.5">Identificador</TableHead>
+                    <TableHead className="px-3 py-2.5">Nº / Ident.</TableHead>
+                    <TableHead className="px-3 py-2.5">Ocupação</TableHead>
+                    <TableHead className="px-3 py-2.5">Poste</TableHead>
                     <TableHead className="px-3 py-2.5">Barramento</TableHead>
                     <TableHead className="px-3 py-2.5">Latitude</TableHead>
                     <TableHead className="px-3 py-2.5">Longitude</TableHead>
@@ -530,6 +589,25 @@ export default function ProjetoDetalhePage() {
                   {postes.map((p) => (
                     <TableRow key={p.ID_PROJETO_POSTE} className="border-b border-slate-100 last:border-b-0">
                       <TableCell className="px-3 py-2.5 font-medium text-slate-700">{p.IDENTIFICADOR_POSTE}</TableCell>
+                      <TableCell className="px-3 py-2.5">
+                        {p.OCUPACAO_TIPO ? (
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${p.OCUPACAO_TIPO === "COMPARTILHADO" ? "bg-blue-50 text-blue-700" : "bg-amber-50 text-amber-700"}`}>
+                            {p.OCUPACAO_TIPO}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="px-3 py-2.5 text-slate-600">
+                        {p.ESPECIFICACAO_POSTE ?? "—"}
+                        {(p.FIXACAO || p.ANGULO != null || p.ESFORCO_RESULTANTE_KGF != null) && (
+                          <span className="block text-[10px] text-slate-400">
+                            {[p.FIXACAO, p.ANGULO != null ? `${p.ANGULO}°` : null, p.ESFORCO_RESULTANTE_KGF != null ? `${p.ESFORCO_RESULTANTE_KGF} Kgf` : null, p.CORDOALHA === "S" ? "cordoalha" : null]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="px-3 py-2.5 text-slate-600">
                         {p.BARRAMENTO ? (
                           <Link href="/mapa-postes" className="text-primary hover:underline">{p.BARRAMENTO}</Link>

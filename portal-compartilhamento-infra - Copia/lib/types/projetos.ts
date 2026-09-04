@@ -173,6 +173,37 @@ export type ProjetoPoste = {
   GEO_VALIDADA: "S" | "N"
   POSTE_LOCALIZADO: "S" | "N"
   OBSERVACAO: string | null
+  // Campos da Planilha de Postes do provedor
+  OCUPACAO_TIPO: "COMPARTILHADO" | "NOVO" | null
+  ESPECIFICACAO_POSTE: string | null
+  FIXACAO: string | null
+  CORDOALHA: "S" | "N" | null
+  ANGULO: number | null
+  ESFORCO_RESULTANTE_KGF: number | null
+}
+
+// Linha bruta lida do .xlsx da Planilha de Postes.
+export type LinhaPosteImport = {
+  ocupacao: "COMPARTILHADO" | "NOVO" | null
+  n_poste: string | null
+  endereco: string | null
+  municipio: string | null
+  especificacao_poste: string | null
+  barramento: string | null
+  latitude: number | null
+  longitude: number | null
+  fixacao: string | null
+  cordoalha: "S" | "N" | null
+  angulo: number | null
+  resultante: number | null
+}
+
+export type ImportPostesResposta = {
+  success: boolean
+  criados: number
+  total: number
+  ignorados: number
+  substituidos: number
 }
 
 export type ProjetoDocumento = {
