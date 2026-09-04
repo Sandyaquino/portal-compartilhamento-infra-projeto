@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, CheckCircle2, Clock, ListChecks, Percent, PhoneCall, Search, User, UserX, XCircle } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Clock, ListChecks, Percent, PhoneCall, Search, Sparkles, User, UserX, XCircle } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { KpiCard } from "@/components/comercial/kpi-card"
@@ -24,24 +24,8 @@ import {
 import { API_BASE_URL } from "@/lib/config"
 import { statusClass, statusLabel } from "@/hooks/use-lista-entrantes"
 import { useCurrentUser } from "@/hooks/use-current-user"
-
-type TipoFase = "entrante" | "etapa" | "contato"
-
-type FaseConfig = {
-  id: string
-  label: string
-  tipo: TipoFase
-  etapaId?: number
-}
-
-const FASES: FaseConfig[] = [
-  { id: "entrante", label: "Análise de Entrante", tipo: "entrante" },
-  { id: "etapa-1", label: "Análise Cadastral", tipo: "etapa", etapaId: 1 },
-  { id: "etapa-2", label: "Documentação", tipo: "etapa", etapaId: 2 },
-  { id: "etapa-3", label: "Aprovação", tipo: "etapa", etapaId: 3 },
-  { id: "etapa-4", label: "Contratação", tipo: "etapa", etapaId: 4 },
-  { id: "contato", label: "Contato com Provedor", tipo: "contato" },
-]
+import { FASES, type FaseConfig } from "@/lib/comercial/fases-carteira"
+import { GerarCarteiraModal } from "@/components/comercial/gerar-carteira-modal"
 
 // Formato comum que os cards/colunas do kanban consomem, independente da
 // fase de origem (entrante, etapa do processo, ou fila de contato).
@@ -189,6 +173,7 @@ export default function CarteiraAnalisePage() {
   const [filtroResponsavel, setFiltroResponsavel] = useState<string | null>(null)
   const [notification, setNotification] = useState<Notification | null>(null)
   const [itemEditando, setItemEditando] = useState<ItemCarteira | null>(null)
+  const [modalGerarAberto, setModalGerarAberto] = useState(false)
 
   // Ao abrir a página, cai direto na fila do usuário logado (em vez de
   // "Todos") - é o caso de uso do dia a dia; o analista troca pra "Todos"
@@ -254,6 +239,7 @@ export default function CarteiraAnalisePage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar(fase)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [faseId])
@@ -381,6 +367,12 @@ export default function CarteiraAnalisePage() {
           { label: "Comercial", href: "/comercial" },
           { label: "Carteira de Análise" },
         ]}
+        actions={
+          <Button type="button" onClick={() => setModalGerarAberto(true)}>
+            <Sparkles className="h-4 w-4" />
+            Gerar carteira automática
+          </Button>
+        }
       />
 
       <NotificationBanner notification={notification} />
@@ -628,6 +620,13 @@ export default function CarteiraAnalisePage() {
           prazo: itemEditando?.prazo ?? "",
         }}
         onSalvar={salvarAtribuicao}
+      />
+
+      <GerarCarteiraModal
+        open={modalGerarAberto}
+        onOpenChange={setModalGerarAberto}
+        faseInicialId={faseId}
+        onGerado={() => carregar(fase)}
       />
     </div>
   )
