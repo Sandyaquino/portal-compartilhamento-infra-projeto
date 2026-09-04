@@ -14,6 +14,60 @@ export type StatusProjeto =
 
 export type PrioridadeProjeto = "BAIXA" | "MEDIA" | "ALTA" | "URGENTE"
 
+export type TipoProjeto = "NOVO_COMPARTILHAMENTO" | "PONTOS_REVELIA" | "REMOCAO_PONTOS"
+export type ModalidadeProjeto = "COMPLETO" | "CHECKLIST_SIMPLIFICADO"
+
+export const LABEL_TIPO_PROJETO: Record<TipoProjeto, string> = {
+  NOVO_COMPARTILHAMENTO: "Serviço de Novo Compartilhamento",
+  PONTOS_REVELIA: "Pontos à Revelia",
+  REMOCAO_PONTOS: "Remoção de Pontos",
+}
+
+export const LABEL_MODALIDADE_PROJETO: Record<ModalidadeProjeto, string> = {
+  COMPLETO: "Documentação completa",
+  CHECKLIST_SIMPLIFICADO: "Checklist Simplificado",
+}
+
+export type TipoProjetoCatalogo = {
+  CODIGO: TipoProjeto
+  NOME: string
+  DESCRICAO: string
+  ORDEM: number
+}
+
+export type ModalidadeCatalogo = {
+  CODIGO: ModalidadeProjeto
+  NOME: string
+  DESCRICAO: string
+  REGRA_ELEGIBILIDADE: string | null
+}
+
+export type TiposProjetoResposta = {
+  tipos: TipoProjetoCatalogo[]
+  modalidades: ModalidadeCatalogo[]
+}
+
+export type ChecklistDocItem = {
+  CODIGO: string
+  NOME: string
+  OBRIGATORIO: "S" | "N"
+  EXTENSOES_ACEITAS: string
+  ORDEM: number
+}
+
+export type ElegibilidadeSimplificado = {
+  elegivel: boolean
+  motivo: string
+}
+
+export type ChecklistResposta = {
+  tipo: TipoProjeto
+  modalidade: ModalidadeProjeto
+  sem_contrato: "S" | "N"
+  documentos: ChecklistDocItem[]
+  elegibilidade_simplificado: ElegibilidadeSimplificado
+}
+
 export const LABEL_PRIORIDADE_PROJETO: Record<PrioridadeProjeto, string> = {
   BAIXA: "Baixa",
   MEDIA: "Média",
@@ -57,6 +111,9 @@ export type ProjetoListaItem = {
   CNPJ: string
   RAZAO_SOCIAL: string
   NOME_FANTASIA: string | null
+  TIPO_PROJETO: TipoProjeto | null
+  MODALIDADE: ModalidadeProjeto | null
+  SEM_CONTRATO: "S" | "N"
   MUNICIPIO: string | null
   UF: string | null
   STATUS_PROJETO: StatusProjeto
@@ -86,6 +143,14 @@ export type Projeto = ProjetoListaItem & {
   DATA_CONCLUSAO: string | null
   CREATED_AT: string | null
   CREATED_BY: string | null
+  DIAS_OPERACAO_REVELIA: number | null
+  PROTOCOLO_SAP_CRM: string | null
+  NOTA_SAP_CCS: string | null
+  PASTA_SHAREPOINT: string | null
+  ETAPA_PROTOCOLO_CRM: "S" | "N"
+  ETAPA_NOTA_CCS: "S" | "N"
+  ETAPA_PASTA_SHAREPOINT: "S" | "N"
+  ETAPA_ESTEIRA_ANALISE: "S" | "N"
 }
 
 export type ProjetoPoste = {

@@ -34,15 +34,110 @@ const MUNICIPIOS = ["Salvador", "Lauro de Freitas", "Camaçari", "Simões Filho"
 const BAIRROS = ["Centro", "Pituba", "Barra", "Itapuã", "Brotas", "Cajazeiras"]
 const TIPOS_OCUPACAO = ["FIBRA", "COAXIAL"]
 
+// Catalogo de tipos de documento (norma vigente). Espelha o reseed de
+// sql/ALTER_PORTAL_COMPARTILHAMENTO_PROJETO_TIPO.sql.
 const CATALOGO_TIPOS_DOC = [
-  { ID_TIPO_DOCUMENTO: 1, CODIGO: "OFICIO_SOLICITACAO", NOME: "Ofício de solicitação de compartilhamento", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 10, ATIVO: "S" },
-  { ID_TIPO_DOCUMENTO: 2, CODIGO: "PLANILHA_POSTES", NOME: "Planilha de postes", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "xlsx,csv", ORDEM: 20, ATIVO: "S" },
-  { ID_TIPO_DOCUMENTO: 3, CODIGO: "PROJETO_TECNICO", NOME: "Projeto técnico / memorial descritivo", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 30, ATIVO: "S" },
-  { ID_TIPO_DOCUMENTO: 4, CODIGO: "ART_TRT", NOME: "ART / TRT do responsável técnico", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 40, ATIVO: "S" },
-  { ID_TIPO_DOCUMENTO: 5, CODIGO: "LICENCA_ANATEL", NOME: "Licença / outorga ANATEL", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 50, ATIVO: "S" },
-  { ID_TIPO_DOCUMENTO: 6, CODIGO: "CONTRATO_SOCIAL", NOME: "Contrato social / CNPJ", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 60, ATIVO: "S" },
-  { ID_TIPO_DOCUMENTO: 7, CODIGO: "KML_TRACADO", NOME: "Arquivo KML/KMZ do traçado", OBRIGATORIO: "N", EXTENSOES_ACEITAS: "kml,kmz", ORDEM: 70, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 1, CODIGO: "SOLICITACAO_ANALISE", NOME: "Solicitação de análise", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 10, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 2, CODIGO: "KMZ", NOME: "Arquivo KMZ", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "kmz,kml", ORDEM: 20, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 3, CODIGO: "ART_RRT_TRT", NOME: "ART, RRT ou TRT", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 30, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 4, CODIGO: "PLANILHA_POSTES", NOME: "Planilha de Postes", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "xlsx,csv", ORDEM: 40, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 5, CODIGO: "PLANTA_DETALHADA", NOME: "Planta detalhada", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf,dwg", ORDEM: 50, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 6, CODIGO: "MEMORIAL_TECNICO", NOME: "Memorial Técnico descritivo e de cálculo", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 60, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 7, CODIGO: "CARTA_REDE_INSTALADA", NOME: "Carta de Rede Instalada", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 70, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 8, CODIGO: "CARTA_AMBIENTAL", NOME: "Carta de Conformidade Ambiental", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 80, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 9, CODIGO: "CRONOGRAMA_DESMOBILIZACAO", NOME: "Cronograma de desmobilização", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf,xlsx", ORDEM: 90, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 10, CODIGO: "CHECKLIST_SIMPLIFICADO", NOME: "Checklist Simplificado", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf,xlsx", ORDEM: 100, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 11, CODIGO: "CONTRATO_SOCIAL", NOME: "Contrato Social da Empresa e Alterações", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 110, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 12, CODIGO: "CARTAO_CNPJ", NOME: "Cartão CNPJ", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 120, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 13, CODIGO: "OUTORGA_ANATEL", NOME: "Termo de Outorga ou Dispensa da Anatel", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf", ORDEM: 130, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 14, CODIGO: "DOC_REP_LEGAL", NOME: "CNH ou documento oficial com foto do representante legal", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf,jpg,png", ORDEM: 140, ATIVO: "S" },
+  { ID_TIPO_DOCUMENTO: 15, CODIGO: "FORMULARIO_CADASTRAL", NOME: "Formulário de dados Cadastrais", OBRIGATORIO: "S", EXTENSOES_ACEITAS: "pdf,docx", ORDEM: 150, ATIVO: "S" },
 ]
+const DOC_POR_CODIGO = new Map(CATALOGO_TIPOS_DOC.map((t) => [t.CODIGO, t]))
+
+// Tipos de projeto (o procedimento muda conforme o tipo).
+const TIPOS_PROJETO = [
+  {
+    CODIGO: "NOVO_COMPARTILHAMENTO",
+    NOME: "Serviço de Novo Compartilhamento",
+    DESCRICAO:
+      "Rede nova a ser instalada na infraestrutura da distribuidora. Exige a documentação técnica e ambiental completa.",
+    ORDEM: 10,
+  },
+  {
+    CODIGO: "PONTOS_REVELIA",
+    NOME: "Pontos à Revelia",
+    DESCRICAO:
+      "Regularização de ocupação já existente, instalada sem cadastro prévio. Não exige planta detalhada nem carta ambiental.",
+    ORDEM: 20,
+  },
+  {
+    CODIGO: "REMOCAO_PONTOS",
+    NOME: "Remoção de Pontos",
+    DESCRICAO:
+      "Desmobilização de ocupação existente. Exige cronograma de desmobilização no lugar da carta ambiental.",
+    ORDEM: 30,
+  },
+]
+const CODIGOS_TIPO = new Set(TIPOS_PROJETO.map((t) => t.CODIGO))
+
+const MODALIDADES = [
+  { CODIGO: "COMPLETO", NOME: "Documentação completa", DESCRICAO: "Fluxo padrão: toda a lista de documentos obrigatórios do tipo.", REGRA_ELEGIBILIDADE: null },
+  {
+    CODIGO: "CHECKLIST_SIMPLIFICADO",
+    NOME: "Checklist Simplificado",
+    DESCRICAO: "Lista reduzida de documentos. Segue o fluxo normal dentro do Portal.",
+    REGRA_ELEGIBILIDADE:
+      "Válido apenas se: (I) ocupação a partir de 300 pontos novos; OU (II) regularização de ocupação à revelia operando há no mínimo 180 dias.",
+  },
+]
+
+// Matriz CHAVE -> documentos. CHAVE = TIPO_PROJETO | CHECKLIST_SIMPLIFICADO | SEM_CONTRATO.
+const MATRIZ_TIPO_DOC = {
+  NOVO_COMPARTILHAMENTO: [
+    "SOLICITACAO_ANALISE", "KMZ", "ART_RRT_TRT", "PLANILHA_POSTES", "PLANTA_DETALHADA",
+    "MEMORIAL_TECNICO", "CARTA_REDE_INSTALADA", "CARTA_AMBIENTAL",
+  ],
+  PONTOS_REVELIA: [
+    "SOLICITACAO_ANALISE", "KMZ", "ART_RRT_TRT", "PLANILHA_POSTES", "MEMORIAL_TECNICO", "CARTA_REDE_INSTALADA",
+  ],
+  REMOCAO_PONTOS: [
+    "SOLICITACAO_ANALISE", "KMZ", "ART_RRT_TRT", "PLANILHA_POSTES", "MEMORIAL_TECNICO", "CRONOGRAMA_DESMOBILIZACAO",
+  ],
+  CHECKLIST_SIMPLIFICADO: ["CHECKLIST_SIMPLIFICADO", "ART_RRT_TRT", "KMZ", "CARTA_REDE_INSTALADA"],
+  SEM_CONTRATO: ["CONTRATO_SOCIAL", "CARTAO_CNPJ", "OUTORGA_ANATEL", "DOC_REP_LEGAL", "FORMULARIO_CADASTRAL"],
+}
+
+// Resolve a lista de documentos que um projeto exige.
+function resolverChecklist(tipoProjeto, modalidade, semContrato) {
+  const chaveBase = modalidade === "CHECKLIST_SIMPLIFICADO" ? "CHECKLIST_SIMPLIFICADO" : tipoProjeto
+  const codigos = [...(MATRIZ_TIPO_DOC[chaveBase] || [])]
+  if (semContrato === "S" || semContrato === true) {
+    for (const c of MATRIZ_TIPO_DOC.SEM_CONTRATO) if (!codigos.includes(c)) codigos.push(c)
+  }
+  return codigos
+    .map((codigo, i) => {
+      const doc = DOC_POR_CODIGO.get(codigo)
+      return doc
+        ? { CODIGO: codigo, NOME: doc.NOME, OBRIGATORIO: "S", EXTENSOES_ACEITAS: doc.EXTENSOES_ACEITAS, ORDEM: (i + 1) * 10 }
+        : null
+    })
+    .filter(Boolean)
+}
+
+// Regra de elegibilidade do Checklist Simplificado.
+function checarSimplificado(tipoProjeto, qtdPostes, diasRevelia) {
+  const porPontos = Number(qtdPostes) >= 300
+  const porRevelia = tipoProjeto === "PONTOS_REVELIA" && Number(diasRevelia) >= 180
+  return {
+    elegivel: porPontos || porRevelia,
+    motivo: porPontos
+      ? "Projeto com 300+ pontos novos."
+      : porRevelia
+        ? "Regularização à revelia operando há 180+ dias."
+        : "Não atende: precisa de 300+ pontos novos OU ocupação à revelia há 180+ dias.",
+  }
+}
 const TIPOS_OBRIGATORIOS = CATALOGO_TIPOS_DOC.filter((t) => t.OBRIGATORIO === "S")
 
 const STATUS_PROJETO = [
@@ -140,9 +235,9 @@ function gerarPostes(idProjeto, qtd, municipio) {
   return postes
 }
 
-function gerarDocumentos(idProjeto, idSubmissao, emailRemetente, completos) {
+function gerarDocumentos(idProjeto, idSubmissao, emailRemetente, completos, checklist) {
   const docs = []
-  for (const tipo of CATALOGO_TIPOS_DOC) {
+  for (const tipo of checklist || CATALOGO_TIPOS_DOC) {
     const recebido = completos || tipo.OBRIGATORIO === "N" ? true : Math.random() < 0.6
     const status = !recebido
       ? "PENDENTE"
@@ -162,7 +257,7 @@ function gerarDocumentos(idProjeto, idSubmissao, emailRemetente, completos) {
       TIPO_ARQUIVO: recebido ? "application/pdf" : null,
       CAMINHO_ARQUIVO: recebido ? `https://sharepoint.fake/projetos/${idProjeto}/${tipo.CODIGO}.pdf` : null,
       TAMANHO_BYTES: recebido ? inteiro(80_000, 4_000_000) : null,
-      HASH_ARQUIVO: recebido ? `hash-${idProjeto}-${tipo.ID_TIPO_DOCUMENTO}` : null,
+      HASH_ARQUIVO: recebido ? `hash-${idProjeto}-${tipo.CODIGO}` : null,
       STATUS_DOCUMENTO: status,
       MOTIVO_REJEICAO: status === "REJEITADO" ? "Documento ilegível / fora do padrão." : null,
       RECEBIDO_VIA: "EMAIL",
@@ -208,7 +303,12 @@ function addHistorico(idProjeto, tipoEvento, statusAnterior, statusNovo, descric
 function criarProjeto({ provedor, cnpj, razao, fantasia, status, submissao, completos }) {
   const id = ++seqProjeto
   const municipio = MUNICIPIOS[id % MUNICIPIOS.length]
-  const qtdInformada = inteiro(8, 40)
+  const tipoProjeto = TIPOS_PROJETO[id % TIPOS_PROJETO.length].CODIGO
+  const semContrato = id % 4 === 0 ? "S" : "N"
+  const qtdInformada = semContrato === "N" && id % 3 === 0 ? inteiro(310, 480) : inteiro(8, 40)
+  const modalidade =
+    qtdInformada >= 300 && id % 3 === 0 ? "CHECKLIST_SIMPLIFICADO" : "COMPLETO"
+  const checklist = resolverChecklist(tipoProjeto, modalidade, semContrato)
   const processo = provedor ? db.processos.find((p) => p.ID_PROVEDOR === provedor.ID_PROVEDOR) : null
 
   const projeto = {
@@ -222,6 +322,17 @@ function criarProjeto({ provedor, cnpj, razao, fantasia, status, submissao, comp
     CNPJ: cnpj,
     RAZAO_SOCIAL: razao,
     NOME_FANTASIA: fantasia,
+    TIPO_PROJETO: tipoProjeto,
+    MODALIDADE: modalidade,
+    SEM_CONTRATO: semContrato,
+    DIAS_OPERACAO_REVELIA: tipoProjeto === "PONTOS_REVELIA" ? inteiro(60, 400) : null,
+    PROTOCOLO_SAP_CRM: `CRM-${anoAtual()}-${String(100000 + id).slice(-6)}`,
+    NOTA_SAP_CCS: `CCS-${String(700000 + id * 7)}`,
+    PASTA_SHAREPOINT: `https://sharepoint.local/sites/compartilhamento/Documentos/${numeroProjeto()}`,
+    ETAPA_PROTOCOLO_CRM: "S",
+    ETAPA_NOTA_CCS: "S",
+    ETAPA_PASTA_SHAREPOINT: "S",
+    ETAPA_ESTEIRA_ANALISE: status === "RECEBIDO" ? "N" : "S",
     MUNICIPIO: municipio,
     UF: "BA",
     REGIONAL: "Metropolitana",
@@ -261,7 +372,9 @@ function criarProjeto({ provedor, cnpj, razao, fantasia, status, submissao, comp
 
   const qtdPostes = completos ? qtdInformada : inteiro(4, qtdInformada)
   projetoPostes.push(...gerarPostes(id, qtdPostes, municipio))
-  projetoDocumentos.push(...gerarDocumentos(id, submissao.ID_SUBMISSAO, submissao.EMAIL_REMETENTE, completos))
+  projetoDocumentos.push(
+    ...gerarDocumentos(id, submissao.ID_SUBMISSAO, submissao.EMAIL_REMETENTE, completos, checklist),
+  )
 
   submissao.ID_PROJETO = id
   submissao.STATUS_SUBMISSAO = "VINCULADA"
@@ -301,8 +414,8 @@ function criarProjeto({ provedor, cnpj, razao, fantasia, status, submissao, comp
 
 // Checklist de documentos "em branco" (tudo PENDENTE) — usado quando o
 // projeto é criado manualmente pelo usuário, sem e-mail/anexos.
-function gerarDocumentosPendentes(idProjeto) {
-  return CATALOGO_TIPOS_DOC.map((tipo) => ({
+function gerarDocumentosPendentes(idProjeto, checklist) {
+  return (checklist || CATALOGO_TIPOS_DOC).map((tipo) => ({
     ID_PROJETO_DOCUMENTO: ++seqDoc,
     ID_PROJETO: idProjeto,
     ID_SUBMISSAO: null,
@@ -340,6 +453,13 @@ function criarProjetoManual({
   titulo,
   prioridade,
   qtdInformada,
+  tipoProjeto,
+  modalidade,
+  semContrato,
+  diasOperacaoRevelia,
+  protocoloSapCrm,
+  notaSapCcs,
+  pastaSharepoint,
   usuario,
 }) {
   const id = ++seqProjeto
@@ -347,6 +467,10 @@ function criarProjetoManual({
   const prio = ["BAIXA", "MEDIA", "ALTA", "URGENTE"].includes(String(prioridade || "").toUpperCase())
     ? String(prioridade).toUpperCase()
     : "MEDIA"
+  const tipo = CODIGOS_TIPO.has(tipoProjeto) ? tipoProjeto : "NOVO_COMPARTILHAMENTO"
+  const modal = modalidade === "CHECKLIST_SIMPLIFICADO" ? "CHECKLIST_SIMPLIFICADO" : "COMPLETO"
+  const semCont = semContrato === "S" || semContrato === true ? "S" : "N"
+  const checklist = resolverChecklist(tipo, modal, semCont)
 
   const projeto = {
     ID_PROJETO: id,
@@ -359,6 +483,17 @@ function criarProjetoManual({
     CNPJ: cnpj,
     RAZAO_SOCIAL: razao,
     NOME_FANTASIA: fantasia || null,
+    TIPO_PROJETO: tipo,
+    MODALIDADE: modal,
+    SEM_CONTRATO: semCont,
+    DIAS_OPERACAO_REVELIA: Number.isFinite(Number(diasOperacaoRevelia)) ? Number(diasOperacaoRevelia) : null,
+    PROTOCOLO_SAP_CRM: (protocoloSapCrm || "").trim() || null,
+    NOTA_SAP_CCS: (notaSapCcs || "").trim() || null,
+    PASTA_SHAREPOINT: (pastaSharepoint || "").trim() || null,
+    ETAPA_PROTOCOLO_CRM: (protocoloSapCrm || "").trim() ? "S" : "N",
+    ETAPA_NOTA_CCS: (notaSapCcs || "").trim() ? "S" : "N",
+    ETAPA_PASTA_SHAREPOINT: (pastaSharepoint || "").trim() ? "S" : "N",
+    ETAPA_ESTEIRA_ANALISE: "N",
     MUNICIPIO: mun,
     UF: uf || "BA",
     REGIONAL: "Metropolitana",
@@ -387,7 +522,7 @@ function criarProjetoManual({
     ATIVO: "S",
   }
   projetos.push(projeto)
-  projetoDocumentos.push(...gerarDocumentosPendentes(id))
+  projetoDocumentos.push(...gerarDocumentosPendentes(id, checklist))
 
   addHistorico(
     id,
@@ -492,6 +627,9 @@ function projetoListaItem(p) {
     CNPJ: p.CNPJ,
     RAZAO_SOCIAL: p.RAZAO_SOCIAL,
     NOME_FANTASIA: p.NOME_FANTASIA,
+    TIPO_PROJETO: p.TIPO_PROJETO ?? null,
+    MODALIDADE: p.MODALIDADE ?? null,
+    SEM_CONTRATO: p.SEM_CONTRATO ?? "N",
     MUNICIPIO: p.MUNICIPIO,
     UF: p.UF,
     STATUS_PROJETO: p.STATUS_PROJETO,
@@ -543,6 +681,28 @@ function vinculoDoProjeto(p) {
 
 function registrar(router) {
   router.get("/api/projetos/tipos-documento", (req, res) => enviarJson(res, 200, CATALOGO_TIPOS_DOC))
+
+  // Tipos de projeto + modalidades (o procedimento muda conforme o tipo).
+  router.get("/api/projetos/tipos", (req, res) =>
+    enviarJson(res, 200, { tipos: TIPOS_PROJETO, modalidades: MODALIDADES }),
+  )
+
+  // Checklist de documentos que a combinacao tipo+modalidade+sem_contrato exige.
+  router.get("/api/projetos/checklist", (req, res, ctx) => {
+    const tipo = ctx.query.get("tipo") || "NOVO_COMPARTILHAMENTO"
+    const modalidade = ctx.query.get("modalidade") || "COMPLETO"
+    const semContrato = ctx.query.get("sem_contrato") === "S" ? "S" : "N"
+    if (!CODIGOS_TIPO.has(tipo)) return erroDetalhe(res, 400, "tipo de projeto invalido")
+    const qtdPostes = Number(ctx.query.get("qtd_postes") || 0)
+    const diasRevelia = Number(ctx.query.get("dias_revelia") || 0)
+    enviarJson(res, 200, {
+      tipo,
+      modalidade,
+      sem_contrato: semContrato,
+      documentos: resolverChecklist(tipo, modalidade, semContrato),
+      elegibilidade_simplificado: checarSimplificado(tipo, qtdPostes, diasRevelia),
+    })
+  })
 
   // Analistas disponíveis para a carteira (reaproveita o cadastro do portal).
   router.get("/api/projetos/analistas", (req, res) => enviarJson(res, 200, db.analistas))
@@ -740,6 +900,20 @@ function registrar(router) {
       return erroDetalhe(res, 400, "Selecione um provedor ou informe a razão social")
     }
 
+    const tipoProjeto = corpo.tipo_projeto || "NOVO_COMPARTILHAMENTO"
+    if (!CODIGOS_TIPO.has(tipoProjeto)) return erroDetalhe(res, 400, "Informe o tipo de projeto (com base no e-mail).")
+    const modalidade = corpo.modalidade === "CHECKLIST_SIMPLIFICADO" ? "CHECKLIST_SIMPLIFICADO" : "COMPLETO"
+    const semContrato = corpo.sem_contrato === "S" || corpo.sem_contrato === true ? "S" : "N"
+    const qtdInformada = Number(corpo.qtd_postes_informada) || 0
+    const diasRevelia = Number(corpo.dias_operacao_revelia) || 0
+
+    if (modalidade === "CHECKLIST_SIMPLIFICADO") {
+      const chk = checarSimplificado(tipoProjeto, qtdInformada, diasRevelia)
+      if (!chk.elegivel && corpo.forcar !== true) {
+        return enviarJson(res, 422, { detail: `Checklist Simplificado não permitido. ${chk.motivo}`, elegibilidade: chk })
+      }
+    }
+
     const projeto = criarProjetoManual({
       provedor,
       processo,
@@ -750,7 +924,14 @@ function registrar(router) {
       uf: corpo.uf || (provedor && provedor.UF) || null,
       titulo: (corpo.titulo || "").trim() || null,
       prioridade: corpo.prioridade || "MEDIA",
-      qtdInformada: Number(corpo.qtd_postes_informada) || 0,
+      qtdInformada,
+      tipoProjeto,
+      modalidade,
+      semContrato,
+      diasOperacaoRevelia: diasRevelia || null,
+      protocoloSapCrm: corpo.protocolo_sap_crm,
+      notaSapCcs: corpo.nota_sap_ccs,
+      pastaSharepoint: corpo.pasta_sharepoint,
       usuario: corpo.usuario || "dev.local",
     })
 
@@ -760,6 +941,28 @@ function registrar(router) {
       numero_projeto: projeto.NUMERO_PROJETO,
       vinculo_resolvido: Boolean(provedor),
     })
+  })
+
+  // Atualiza os dados de integracao (SAP CRM / SAP CCS / SharePoint) e o
+  // checklist de etapas do recebimento.
+  router.patch("/api/projetos/:id/integracao", async (req, res, ctx) => {
+    const projeto = projetos.find((p) => p.ID_PROJETO === Number(ctx.params.id))
+    if (!projeto) return erroDetalhe(res, 404, "Projeto não encontrado")
+    const b = ctx.body || {}
+    const texto = (v, atual) => (v === undefined ? atual : String(v || "").trim() || null)
+    const flag = (v, atual) => (v === undefined ? atual : v === "S" || v === true ? "S" : "N")
+
+    projeto.PROTOCOLO_SAP_CRM = texto(b.protocolo_sap_crm, projeto.PROTOCOLO_SAP_CRM)
+    projeto.NOTA_SAP_CCS = texto(b.nota_sap_ccs, projeto.NOTA_SAP_CCS)
+    projeto.PASTA_SHAREPOINT = texto(b.pasta_sharepoint, projeto.PASTA_SHAREPOINT)
+    projeto.ETAPA_PROTOCOLO_CRM = flag(b.etapa_protocolo_crm, projeto.ETAPA_PROTOCOLO_CRM)
+    projeto.ETAPA_NOTA_CCS = flag(b.etapa_nota_ccs, projeto.ETAPA_NOTA_CCS)
+    projeto.ETAPA_PASTA_SHAREPOINT = flag(b.etapa_pasta_sharepoint, projeto.ETAPA_PASTA_SHAREPOINT)
+    projeto.ETAPA_ESTEIRA_ANALISE = flag(b.etapa_esteira_analise, projeto.ETAPA_ESTEIRA_ANALISE)
+    projeto.UPDATED_AT = agora()
+    projeto.UPDATED_BY = b.usuario || "dev.local"
+    addHistorico(projeto.ID_PROJETO, "STATUS", null, null, "Dados de integração atualizados.", b.usuario)
+    enviarJson(res, 200, { success: true, projeto })
   })
 
   router.get("/api/projetos", (req, res, ctx) => {

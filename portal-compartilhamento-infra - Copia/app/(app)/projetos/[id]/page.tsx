@@ -36,9 +36,13 @@ import { API_BASE_URL } from "@/lib/config"
 import { useCurrentUser } from "@/hooks/use-current-user"
 import { AbasEnterprise, Def, DefGrid, Medidor, SecaoCard, StatusPill } from "@/components/projetos/projeto-ui"
 import {
+  LABEL_MODALIDADE_PROJETO,
   LABEL_STATUS_PROJETO,
+  LABEL_TIPO_PROJETO,
+  type ModalidadeProjeto,
   type ProjetoDetalhe,
   type StatusProjeto,
+  type TipoProjeto,
 } from "@/lib/types/projetos"
 
 function fData(v?: string | null) {
@@ -85,6 +89,13 @@ export default function ProjetoDetalhePage() {
   const [notification, setNotification] = useState<Notification | null>(null)
   const [salvandoStatus, setSalvandoStatus] = useState(false)
 
+  // Edição dos dados de integração (SAP CRM / SAP CCS / SharePoint + etapas).
+  const [intProtocolo, setIntProtocolo] = useState("")
+  const [intNota, setIntNota] = useState("")
+  const [intPasta, setIntPasta] = useState("")
+  const [intEtapas, setIntEtapas] = useState({ crm: false, ccs: false, sp: false, esteira: false })
+  const [salvandoInt, setSalvandoInt] = useState(false)
+
   const carregar = useCallback(async () => {
     setLoading(true)
     try {
@@ -103,6 +114,48 @@ export default function ProjetoDetalhePage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar()
   }, [carregar])
+
+  useEffect(() => {
+    const p = dados?.projeto
+    if (!p) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIntProtocolo(p.PROTOCOLO_SAP_CRM ?? "")
+    setIntNota(p.NOTA_SAP_CCS ?? "")
+    setIntPasta(p.PASTA_SHAREPOINT ?? "")
+    setIntEtapas({
+      crm: p.ETAPA_PROTOCOLO_CRM === "S",
+      ccs: p.ETAPA_NOTA_CCS === "S",
+      sp: p.ETAPA_PASTA_SHAREPOINT === "S",
+      esteira: p.ETAPA_ESTEIRA_ANALISE === "S",
+    })
+  }, [dados])
+
+  async function salvarIntegracao() {
+    setSalvandoInt(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/projetos/${id}/integracao`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          protocolo_sap_crm: intProtocolo.trim() || null,
+          nota_sap_ccs: intNota.trim() || null,
+          pasta_sharepoint: intPasta.trim() || null,
+          etapa_protocolo_crm: intEtapas.crm ? "S" : "N",
+          etapa_nota_ccs: intEtapas.ccs ? "S" : "N",
+          etapa_pasta_sharepoint: intEtapas.sp ? "S" : "N",
+          etapa_esteira_analise: intEtapas.esteira ? "S" : "N",
+          usuario: user?.login ?? "dev.local",
+        }),
+      })
+      if (!res.ok) throw new Error((await res.text()) || "Erro ao salvar a integração")
+      setNotification({ type: "success", message: "Dados de integração salvos." })
+      await carregar()
+    } catch (error) {
+      setNotification({ type: "error", message: error instanceof Error ? error.message : "Erro ao salvar a integração" })
+    } finally {
+      setSalvandoInt(false)
+    }
+  }
 
   async function mudarStatus(novo: StatusProjeto) {
     setSalvandoStatus(true)
@@ -264,9 +317,27 @@ export default function ProjetoDetalhePage() {
               <Def label="Número do projeto">{projeto.NUMERO_PROJETO}</Def>
               <Def label="Chave de conexão (CNPJ)"><span className="font-mono">{projeto.CHAVE_CONEXAO}</span></Def>
               <Def label="Prioridade">{projeto.PRIORIDADE}</Def>
+              <Def label="Tipo de projeto">
+                {projeto.TIPO_PROJETO ? LABEL_TIPO_PROJETO[projeto.TIPO_PROJETO as TipoProjeto] : "—"}
+              </Def>
+              <Def label="Modalidade">
+                {projeto.MODALIDADE ? LABEL_MODALIDADE_PROJETO[projeto.MODALIDADE as ModalidadeProjeto] : "—"}
+              </Def>
+              <Def label="Contrato">
+                {projeto.SEM_CONTRATO === "S" ? (
+                  <span className="text-amber-700">Sem contrato — exige doc. societária</span>
+                ) : (
+                  "Com contrato"
+                )}
+              </Def>
               <Def label="Razão social">{projeto.RAZAO_SOCIAL}</Def>
               <Def label="Nome fantasia">{projeto.NOME_FANTASIA}</Def>
               <Def label="CNPJ"><span className="font-mono">{projeto.CNPJ}</span></Def>
+              {projeto.TIPO_PROJETO === "PONTOS_REVELIA" && (
+                <Def label="Operação à revelia">
+                  {projeto.DIAS_OPERACAO_REVELIA != null ? `${projeto.DIAS_OPERACAO_REVELIA} dias` : "—"}
+                </Def>
+              )}
             </DefGrid>
           </SecaoCard>
 
@@ -290,6 +361,78 @@ export default function ProjetoDetalhePage() {
               <Def label="Criado por">{projeto.CREATED_BY}</Def>
               <Def label="Concluído em">{fDataHora(projeto.DATA_CONCLUSAO)}</Def>
             </DefGrid>
+          </SecaoCard>
+
+          <SecaoCard
+            titulo="Integração & recebimento"
+            descricao="Protocolo no SAP CRM, nota no SAP CCS, pasta do SharePoint e as etapas do recebimento."
+          >
+            <div className="grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid gap-1 text-sm">
+                  <span className="font-medium text-slate-700">Protocolo SAP CRM</span>
+                  <input
+                    value={intProtocolo}
+                    onChange={(e) => setIntProtocolo(e.target.value)}
+                    className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
+                    placeholder="CRM-2026-000123"
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span className="font-medium text-slate-700">Nota SAP CCS</span>
+                  <input
+                    value={intNota}
+                    onChange={(e) => setIntNota(e.target.value)}
+                    className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
+                    placeholder="CCS-700123"
+                  />
+                </label>
+              </div>
+              <label className="grid gap-1 text-sm">
+                <span className="font-medium text-slate-700">Pasta no SharePoint</span>
+                <div className="flex gap-2">
+                  <input
+                    value={intPasta}
+                    onChange={(e) => setIntPasta(e.target.value)}
+                    className="h-9 flex-1 rounded-lg border border-slate-300 px-2 text-sm"
+                    placeholder="https://sharepoint.local/sites/compartilhamento/Documentos/..."
+                  />
+                  {intPasta.trim() && (
+                    <a
+                      href={intPasta.trim()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2 text-xs text-primary hover:bg-slate-50"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" /> Abrir
+                    </a>
+                  )}
+                </div>
+              </label>
+              <div className="grid gap-1.5 rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-sm">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Etapas do recebimento</span>
+                {([
+                  ["crm", "Protocolo criado no SAP CRM"],
+                  ["ccs", "Nota associada gerada no SAP CCS"],
+                  ["sp", "Documentos salvos na pasta do SharePoint"],
+                  ["esteira", "Projeto na esteira de análise"],
+                ] as const).map(([chave, rotulo]) => (
+                  <label key={chave} className="flex items-center gap-2 text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={intEtapas[chave]}
+                      onChange={(e) => setIntEtapas((v) => ({ ...v, [chave]: e.target.checked }))}
+                    />
+                    {rotulo}
+                  </label>
+                ))}
+              </div>
+              <div>
+                <Button type="button" size="sm" onClick={salvarIntegracao} disabled={salvandoInt}>
+                  {salvandoInt ? "Salvando..." : "Salvar integração"}
+                </Button>
+              </div>
+            </div>
           </SecaoCard>
         </div>
         )}
