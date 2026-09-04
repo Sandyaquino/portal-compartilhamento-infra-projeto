@@ -525,6 +525,47 @@ function registrar(router) {
     enviarJson(res, 200, db.eps.filter((e) => e.ATIVO === "S")),
   )
 
+  // Area de atuacao das EPS: SUPERINTENDENCIA -> UTD -> SETOR -> MUNICIPIO -> EPS.
+  // Filtros opcionais (?superintendencia=&utd=&setor=&municipios=A,B) para
+  // o filtro em cascata do gerador de carteira.
+  router.get("/api/carteira/eps-atuacao", (req, res, ctx) => {
+    const q = (chave) => (ctx.query.get(chave) || "").trim()
+    const superintendencia = q("superintendencia")
+    const utd = q("utd")
+    const setor = q("setor")
+    const municipios = new Set(
+      q("municipios")
+        .split(",")
+        .map((m) => m.trim().toUpperCase())
+        .filter(Boolean),
+    )
+    const epsAtivas = new Set(db.eps.filter((e) => e.ATIVO === "S").map((e) => e.ID_EPS))
+    const nomeEps = new Map(db.eps.map((e) => [e.ID_EPS, e.NOME]))
+    const lista = db.epsAtuacao
+      .filter((a) => a.ATIVO === "S" && epsAtivas.has(a.ID_EPS))
+      .filter((a) => !superintendencia || a.SUPERINTENDENCIA === superintendencia)
+      .filter((a) => !utd || a.UTD === utd)
+      .filter((a) => !setor || a.SETOR === setor)
+      .filter((a) => !municipios.size || municipios.has(String(a.MUNICIPIO).toUpperCase()))
+      .map((a) => ({
+        ID_EPS: a.ID_EPS,
+        NOME: nomeEps.get(a.ID_EPS) || `EPS ${a.ID_EPS}`,
+        SUPERINTENDENCIA: a.SUPERINTENDENCIA,
+        UTD: a.UTD,
+        SETOR: a.SETOR,
+        MUNICIPIO: a.MUNICIPIO,
+      }))
+      .sort(
+        (a, b) =>
+          a.SUPERINTENDENCIA.localeCompare(b.SUPERINTENDENCIA) ||
+          a.UTD.localeCompare(b.UTD) ||
+          a.SETOR.localeCompare(b.SETOR) ||
+          a.MUNICIPIO.localeCompare(b.MUNICIPIO) ||
+          a.NOME.localeCompare(b.NOME),
+      )
+    enviarJson(res, 200, lista)
+  })
+
   router.get("/api/carteira/equipes", (req, res, ctx) => {
     const idEps = ctx.query.get("eps")
     let lista = db.equipesCampo.filter((e) => e.ATIVO === "S")

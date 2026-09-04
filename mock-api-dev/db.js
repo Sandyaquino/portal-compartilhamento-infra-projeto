@@ -227,6 +227,37 @@ let seqEquipeCampo = 0
   })
 }
 
+// Area de atuacao das EPS (tabela de suporte): relaciona EPS com
+// SUPERINTENDENCIA -> UTD -> SETOR -> MUNICIPIO. Espelha
+// sql/PORTAL_COMPARTILHAMENTO_EPS_ATUACAO.sql. E a fonte de "qual EPS
+// atende cada municipio" no gerador de carteira.
+const ORG_MUNICIPIO = {
+  SALVADOR: { SUPERINTENDENCIA: "Metropolitana", UTD: "UTD Salvador", SETOR: "SSA-Centro", eps: [1, 2] },
+  CAMACARI: { SUPERINTENDENCIA: "Metropolitana", UTD: "UTD Camacari", SETOR: "CAM-Polo", eps: [1, 3] },
+  "FEIRA DE SANTANA": { SUPERINTENDENCIA: "Leste", UTD: "UTD Feira de Santana", SETOR: "FSA-Centro", eps: [3] },
+  ILHEUS: { SUPERINTENDENCIA: "Sul", UTD: "UTD Ilheus", SETOR: "ILH-Litoral", eps: [4] },
+  "PORTO SEGURO": { SUPERINTENDENCIA: "Extremo Sul", UTD: "UTD Porto Seguro", SETOR: "PSE-Costa", eps: [4, 2] },
+}
+const epsAtuacao = []
+{
+  let seq = 0
+  for (const mun of MUNICIPIOS_BASE) {
+    const org = ORG_MUNICIPIO[mun.nome]
+    if (!org) continue
+    for (const idEps of org.eps) {
+      epsAtuacao.push({
+        ID: ++seq,
+        ID_EPS: idEps,
+        SUPERINTENDENCIA: org.SUPERINTENDENCIA,
+        UTD: org.UTD,
+        SETOR: org.SETOR,
+        MUNICIPIO: mun.nome,
+        ATIVO: "S",
+      })
+    }
+  }
+}
+
 let proximoIdAcao = 1
 const acoes = []
 
@@ -1411,6 +1442,7 @@ module.exports = {
   // EPS / equipes de campo (gerador de carteira)
   eps,
   equipesCampo,
+  epsAtuacao,
   // etapas
   etapas,
   etapaPorId,
