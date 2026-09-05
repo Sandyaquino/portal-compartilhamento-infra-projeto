@@ -207,6 +207,162 @@ function provedoresDoBarramento(deBarramento) {
 }
 
 // =====================================================
+// Rede de distribuição (trechos de média e baixa tensão)
+// espelha sql/PORTAL_COMPARTILHAMENTO_TRECHO_REDE.sql.
+//
+// Gera uma rede fictícia coerente: cada alimentador tem um TRONCO de MT
+// e RAMAIS de BT pendurados nele, com postes a ~40 m. Alguns ramais
+// recebem fibra de uma operadora com "buracos" de propósito (poste no
+// meio do corredor sem ocupação) - é o alvo da análise de não faturados.
+// =====================================================
+function _mts(a, b) {
+  const dLat = (a.Y - b.Y) * 111000
+  const dLng = (a.X - b.X) * 108000
+  return Math.hypot(dLat, dLng)
+}
+
+const redeTrechos = []
+const redeNos = [] // { BARRAMENTO, X, Y, MUNICIPIO, ALIMENTADOR, ENTIDADE }
+const redeNoPorBarramento = new Map()
+let _seqTrecho = 700000
+let _seqNoRede = 0
+
+const M_EM_GRAU_LAT = 1 / 111000
+const M_EM_GRAU_LNG = 1 / 108000
+
+const _ALIMENTADORES = [
+  { cod: "SDR-07Z1", municipio: "SALVADOR", centro: { lng: -38.505, lat: -12.985 } },
+  { cod: "SDR-12Z3", municipio: "SALVADOR", centro: { lng: -38.472, lat: -12.955 } },
+  { cod: "LDF-03Z1", municipio: "LAURO DE FREITAS", centro: { lng: -38.33, lat: -12.9 } },
+  { cod: "LDF-08Z2", municipio: "LAURO DE FREITAS", centro: { lng: -38.35, lat: -12.86 } },
+  { cod: "CAM-01Z1", municipio: "CAMACARI", centro: { lng: -38.32, lat: -12.7 } },
+  { cod: "SMF-05Z1", municipio: "SIMOES FILHO", centro: { lng: -38.4, lat: -12.78 } },
+]
+
+function _novoNoRede(x, y, municipio, alimentador, entidade) {
+  const barr = `RDE-${String(++_seqNoRede).padStart(5, "0")}`
+  const no = { BARRAMENTO: barr, X: Number(x.toFixed(6)), Y: Number(y.toFixed(6)), MUNICIPIO: municipio, ALIMENTADOR: alimentador, ENTIDADE: entidade }
+  redeNos.push(no)
+  redeNoPorBarramento.set(barr, no)
+  return no
+}
+
+function _pushTrechoRede(a, b, entidade) {
+  const ext = _mts(a, b)
+  redeTrechos.push({
+    ID_TRECHO: ++_seqTrecho,
+    MUNICIPIO: a.MUNICIPIO,
+    ID_TBT: 14000000 + _seqTrecho,
+    PG_INICIAL: 21000000 + Number(a.BARRAMENTO.slice(-5)),
+    PG_FINAL: 21000000 + Number(b.BARRAMENTO.slice(-5)),
+    BARRAMENTO_INICIAL: a.BARRAMENTO,
+    LONGITUDE_INICIAL: a.X,
+    LATITUDE_INICIAL: a.Y,
+    BARRAMENTO_FINAL: b.BARRAMENTO,
+    LONGITUDE_FINAL: b.X,
+    LATITUDE_FINAL: b.Y,
+    ALIMENTADOR: a.ALIMENTADOR,
+    EXTENSAO_M: Number(ext.toFixed(2)),
+    ENTIDADE: entidade,
+    ATIVO: "S",
+  })
+}
+
+function _ocuparNoRede(barr, op) {
+  if (ocupacoes.some((o) => o.BARRAMENTO === barr && o._idOperadora === op.ID)) return
+  ocupacoes.push({
+    ID: proximoIdOcupacao++,
+    BARRAMENTO: barr,
+    BOARD_NAME: "Caixa Fibra - 24FO",
+    ORGANIZATION_NAME: op.RAZAO_SOCIAL,
+    CNPJ: op.CNPJ,
+    RAZAO_SOCIAL: op.RAZAO_SOCIAL,
+    _idOperadora: op.ID,
+  })
+}
+
+const _cenariosNaoFaturado = [] // pra conferência no console
+
+_ALIMENTADORES.forEach((alim, ai) => {
+  const espMT = 90 // ~90 m entre postes de MT (tronco)
+  const espBT = 40 // ~40 m entre postes de BT (ramal)
+  const nTronco = 8 + (ai % 3) // 8..10 postes de tronco
+  const rumoTronco = (ai * 1.1) % (Math.PI * 2)
+
+  // tronco de MT
+  const tronco = []
+  let px = alim.centro.lng
+  let py = alim.centro.lat
+  for (let i = 0; i < nTronco; i++) {
+    const no = _novoNoRede(px, py, alim.municipio, alim.cod, "TRECHO DE MT")
+    tronco.push(no)
+    if (i > 0) _pushTrechoRede(tronco[i - 1], no, "TRECHO DE MT")
+    px += Math.cos(rumoTronco) * espMT * M_EM_GRAU_LNG
+    py += Math.sin(rumoTronco) * espMT * M_EM_GRAU_LAT
+  }
+
+  // ramais de BT pendurados no tronco
+  const opsDoAlim = [operadoras[ai % operadoras.length], operadoras[(ai + 2) % operadoras.length]]
+  let ramalIdx = 0
+  for (let t = 1; t < tronco.length - 1; t++) {
+    const nRamais = 1 + (t % 2) // 1 ou 2 ramais por poste do tronco
+    for (let r = 0; r < nRamais; r++) {
+      ramalIdx++
+      const rumo = rumoTronco + (r === 0 ? Math.PI / 2 : -Math.PI / 2) + aleatorio(-0.3, 0.3)
+      const nPostes = 5 + Math.floor(Math.random() * 7) // 5..11 postes no ramal
+      let ax = tronco[t].X
+      let ay = tronco[t].Y
+      let anterior = tronco[t]
+      const doRamal = []
+      for (let k = 0; k < nPostes; k++) {
+        ax += Math.cos(rumo) * espBT * M_EM_GRAU_LNG
+        ay += Math.sin(rumo) * espBT * M_EM_GRAU_LAT
+        const no = _novoNoRede(ax, ay, alim.municipio, alim.cod, "TRECHO DE BT")
+        _pushTrechoRede(anterior, no, "TRECHO DE BT")
+        anterior = no
+        doRamal.push(no)
+      }
+
+      // Fibra de uma operadora ocupando parte do ramal, com "buraco":
+      // ocupa do poste 0 ao N, pula 1-2 no meio, retoma. Os pulados são
+      // os "deveria estar faturado e não está".
+      const op = opsDoAlim[ramalIdx % opsDoAlim.length]
+      const comFibra = ramalIdx % 3 !== 0 // ~2/3 dos ramais têm fibra
+      if (comFibra && doRamal.length >= 4) {
+        const buracoIni = 1 + Math.floor(Math.random() * (doRamal.length - 3))
+        const buracoLen = 1 + (ramalIdx % 2) // 1 ou 2 postes no buraco
+        doRamal.forEach((no, idx) => {
+          const dentroBuraco = idx >= buracoIni && idx < buracoIni + buracoLen
+          if (!dentroBuraco) _ocuparNoRede(no.BARRAMENTO, op)
+          else
+            _cenariosNaoFaturado.push({
+              barramento: no.BARRAMENTO,
+              alimentador: alim.cod,
+              operadora: op.RAZAO_SOCIAL,
+            })
+        })
+      }
+    }
+  }
+})
+
+// alguns nós com organização "desconhecida" (possível provedor clandestino
+// sem operadora cadastrada) espalhados pela rede
+for (let i = 0; i < 8; i++) {
+  const no = redeNos[Math.floor(Math.random() * redeNos.length)]
+  if (!no || ocupacoes.some((o) => o.BARRAMENTO === no.BARRAMENTO)) continue
+  ocupacoes.push({
+    ID: proximoIdOcupacao++,
+    BARRAMENTO: no.BARRAMENTO,
+    BOARD_NAME: "Caixa X - 12FO",
+    ORGANIZATION_NAME: null,
+    CNPJ: null,
+    RAZAO_SOCIAL: null,
+    _idOperadora: null,
+  })
+}
+
+// =====================================================
 // EPS (Empresa Prestadora de Serviço) e equipes de campo
 // (espelha sql/PORTAL_COMPARTILHAMENTO_CARTEIRA.sql). Alimentam o
 // gerador de Carteira de Serviço.
@@ -1444,6 +1600,10 @@ module.exports = {
   baseLocalidades,
   basePosteTemProvedor,
   provedoresDoBarramento,
+  // rede de distribuição (trechos MT/BT)
+  redeTrechos,
+  redeNos,
+  redeNoPorBarramento,
   // EPS / equipes de campo (gerador de carteira)
   eps,
   equipesCampo,

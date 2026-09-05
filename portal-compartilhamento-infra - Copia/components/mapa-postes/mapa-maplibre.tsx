@@ -40,6 +40,17 @@ export type CelulaDensidade = {
   qtd: number
 }
 
+// Aresta da rede de distribuição (trecho MT/BT), desenhada como linha
+// sobre o mapa na análise de "postes na rota não faturados".
+export type SegmentoRede = {
+  ax: number
+  ay: number
+  bx: number
+  by: number
+  entidade?: string
+  implicado?: boolean
+}
+
 // Basemap raster do OSM (mesmos tiles que o Leaflet usava) - evita depender
 // de um provedor de vetor com API key (Mapbox/CARTO) só pra trocar o motor
 // de renderizacao pra WebGL. Pode ser trocado por NEXT_PUBLIC_MAP_TILES_URL
@@ -140,6 +151,7 @@ function pontoEmPoligono(x: number, y: number, anel: { lng: number; lat: number 
 }
 
 const SEM_DESTAQUE: string[] = []
+const SEM_SEGMENTOS: SegmentoRede[] = []
 
 export type MapaMapLibreProps = {
   postes: PosteMapa[]
@@ -168,6 +180,8 @@ export type MapaMapLibreProps = {
   // Sinal de que o container mudou de tamanho (ex.: modo tela cheia) - o
   // MapLibre só escuta resize da janela, então força um map.resize() aqui.
   redimensionarSinal?: unknown
+  // Arestas da rede de distribuição desenhadas como linhas (análise de rede).
+  segmentos?: SegmentoRede[]
 }
 
 export default function MapaMapLibre({
@@ -187,9 +201,12 @@ export default function MapaMapLibre({
   onSelecionarAcao,
   posteDestaque = null,
   redimensionarSinal,
+  segmentos = SEM_SEGMENTOS,
 }: MapaMapLibreProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasDensidadeRef = useRef<HTMLCanvasElement | null>(null)
+  const canvasSegmentosRef = useRef<HTMLCanvasElement | null>(null)
+  const segmentosRef = useRef<SegmentoRede[]>(segmentos)
   const svgSelecaoRef = useRef<SVGSVGElement | null>(null)
   const overlayAcoesRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -295,6 +312,50 @@ export default function MapaMapLibre({
     }
     ;(map as unknown as { __desenharDensidade: () => void }).__desenharDensidade = desenharDensidade
 
+    // Linhas da rede de distribuição (trechos MT/BT). Canvas + map.project,
+    // pelo mesmo motivo da densidade (fonte GeoJSON trava no worker da lib).
+    function desenharSegmentos() {
+      const canvas = canvasSegmentosRef.current
+      if (!canvas) return
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return
+      const dpr = window.devicePixelRatio || 1
+      const largura = canvas.clientWidth
+      const altura = canvas.clientHeight
+      if (canvas.width !== largura * dpr || canvas.height !== altura * dpr) {
+        canvas.width = largura * dpr
+        canvas.height = altura * dpr
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, largura, altura)
+
+      const lista = segmentosRef.current
+      if (!lista.length) return
+      ctx.lineCap = "round"
+      // dois passes: primeiro os normais (fininhos), depois os implicados
+      // (grossos, por cima) pra o corredor suspeito saltar aos olhos.
+      for (const implicadoPass of [false, true]) {
+        for (const s of lista) {
+          if (Boolean(s.implicado) !== implicadoPass) continue
+          const p1 = map.project([s.ax, s.ay])
+          const p2 = map.project([s.bx, s.by])
+          const mt = s.entidade === "TRECHO DE MT"
+          if (implicadoPass) {
+            ctx.strokeStyle = "#dc2626"
+            ctx.lineWidth = mt ? 4 : 3
+          } else {
+            ctx.strokeStyle = mt ? "rgba(124,58,237,0.55)" : "rgba(37,99,235,0.4)"
+            ctx.lineWidth = mt ? 2 : 1.25
+          }
+          ctx.beginPath()
+          ctx.moveTo(p1.x, p1.y)
+          ctx.lineTo(p2.x, p2.y)
+          ctx.stroke()
+        }
+      }
+    }
+    ;(map as unknown as { __desenharSegmentos: () => void }).__desenharSegmentos = desenharSegmentos
+
     // Retângulos das ações: reprojetados a cada movimento (são poucos, então
     // recriar os elementos é barato) e clicáveis pra abrir o resumo da ação.
     // DOM em vez de camada `fill` do maplibre pelo mesmo motivo dos
@@ -367,12 +428,15 @@ export default function MapaMapLibre({
       setPronto(true)
       desenharDensidade()
       desenharAcoes()
+      desenharSegmentos()
     })
     map.on("moveend", reportarBounds)
     map.on("move", desenharDensidade)
     map.on("resize", desenharDensidade)
     map.on("move", desenharAcoes)
     map.on("resize", desenharAcoes)
+    map.on("move", desenharSegmentos)
+    map.on("resize", desenharSegmentos)
 
     // === Seleção de área ===
     // Só quando modoSelecao está ativo. Três formas: retângulo e raio/círculo
@@ -676,8 +740,18 @@ export default function MapaMapLibre({
     map?.__desenharDensidade?.()
   }, [celulasDensidade, mostrarDensidade])
 
+  useEffect(() => {
+    segmentosRef.current = segmentos
+    const map = mapRef.current as unknown as { __desenharSegmentos?: () => void } | null
+    map?.__desenharSegmentos?.()
+  }, [segmentos])
+
   return (
     <div ref={containerRef} style={{ height: "100%", width: "100%", position: "relative" }}>
+      <canvas
+        ref={canvasSegmentosRef}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }}
+      />
       <canvas
         ref={canvasDensidadeRef}
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 5 }}

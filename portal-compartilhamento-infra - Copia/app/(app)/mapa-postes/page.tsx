@@ -624,6 +624,11 @@ function MapaPostesConteudo() {
                 Base Coelba
               </button>
             </div>
+            <Link href="/mapa-postes/rede">
+              <Button type="button" variant="outline">
+                Análise de Rede
+              </Button>
+            </Link>
             <Link href="/mapa-postes/acoes">
               <Button type="button" variant="outline">
                 Ações do Mapa
