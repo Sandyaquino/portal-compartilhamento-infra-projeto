@@ -171,6 +171,44 @@ function corSla(taxa: number) {
   return "#DC2626"
 }
 
+// ---------------------------------------------------------------------
+// Receita por município — magnitude, uma série, um hue (teal, mesma cor
+// do card "Provedores com Contrato" na página).
+// ---------------------------------------------------------------------
+function moedaCompacta(v: number) {
+  if (Math.abs(v) >= 1_000_000) return `R$ ${(v / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`
+  if (Math.abs(v) >= 1_000) return `R$ ${(v / 1_000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })} mil`
+  return `R$ ${v.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`
+}
+
+export function BarrasReceitaMunicipio({ dados }: { dados: { municipio: string; receita: number }[] }) {
+  return (
+    <div className="h-[280px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={dados} layout="vertical" margin={{ top: 8, right: 72, left: 8, bottom: 0 }}>
+          <CartesianGrid stroke={COR_GRID} strokeDasharray="3 3" horizontal={false} />
+          <XAxis type="number" tickLine={false} axisLine={false} tick={COR_EIXO} tickFormatter={(v: number) => moedaCompacta(v)} />
+          <YAxis type="category" dataKey="municipio" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: "#64748B" }} width={130} />
+          <Tooltip
+            formatter={(v: unknown) => [typeof v === "number" ? moedaCompacta(v) : String(v ?? ""), "receita"] as [string, string]}
+            contentStyle={tooltipStyle()}
+          />
+          <Bar dataKey="receita" fill="#0D9488" radius={[0, 4, 4, 0]} maxBarSize={26}>
+            <LabelList
+              dataKey="receita"
+              position="right"
+              formatter={(v: unknown) => (typeof v === "number" ? moedaCompacta(v) : "")}
+              fontSize={11}
+              fill="#334155"
+              fontWeight={600}
+            />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 export function BarrasSla({ dados }: { dados: { fase: string; taxa: number; avaliados: number }[] }) {
   return (
     <div className="h-[240px]">

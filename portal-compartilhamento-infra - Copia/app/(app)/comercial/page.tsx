@@ -3,11 +3,15 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   Building2,
+  CalendarClock,
   CheckCircle2,
   ClipboardCheck,
+  DollarSign,
+  FileSignature,
   Inbox,
   Percent,
   UserPlus,
+  Users,
 } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
@@ -21,9 +25,16 @@ import {
   BarrasEtapa,
   LinhaEvolucao,
   BarrasSla,
+  BarrasReceitaMunicipio,
   CORES_STATUS_ENTRADA,
   type EtapaFunil,
 } from "@/components/comercial/graficos-visao-geral"
+
+function moeda(v: number | null | undefined) {
+  if (v == null) return "—"
+  if (Math.abs(v) >= 1_000_000) return `R$ ${(v / 1_000_000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} mi`
+  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })
+}
 
 type EntradaBruta = {
   ID_ENTRADA: number
@@ -38,6 +49,14 @@ type ProcessoBruto = {
   DT_ABERTURA: string | null
 }
 type SlaResposta = { total_avaliados: number; dentro_prazo: number; fora_prazo: number; taxa_cumprimento_sla: number }
+type ResumoFaturamento = {
+  receita_total: number
+  contratos_ativos: number
+  clientes: number
+  receita_media_contrato: number
+  percentual_judicial: number
+}
+type MunicipioFaturamento = { municipio: string; receita: number }
 
 const LABEL_ETAPA: Record<string, string> = {
   "ANALISE CADASTRAL": "Análise Cadastral",
@@ -76,6 +95,9 @@ export default function ComercialPage() {
   const [slaEntrante, setSlaEntrante] = useState<SlaResposta | null>(null)
   const [slaEtapa, setSlaEtapa] = useState<SlaResposta | null>(null)
   const [slaContato, setSlaContato] = useState<SlaResposta | null>(null)
+  const [resumoFat, setResumoFat] = useState<ResumoFaturamento | null>(null)
+  const [municipiosFat, setMunicipiosFat] = useState<MunicipioFaturamento[]>([])
+  const [vencendoFat, setVencendoFat] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [notification, setNotification] = useState<Notification | null>(null)
 
@@ -90,8 +112,11 @@ export default function ComercialPage() {
       apiFetch("/api/novos-entrantes/sla-analise", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
       apiFetch("/api/processos/sla-etapa", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
       apiFetch("/api/processos/sla-contato", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+      apiFetch("/api/faturamento/resumo", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+      apiFetch("/api/faturamento/municipios", { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
+      apiFetch("/api/faturamento/contratos-vencendo?dias=90", { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
     ])
-      .then(([en, pr, prov, sEnt, sEtp, sCont]) => {
+      .then(([en, pr, prov, sEnt, sEtp, sCont, fatResumo, fatMun, fatVenc]) => {
         if (cancelado) return
         setEntrantes(Array.isArray(en) ? en : [])
         setProcessos(Array.isArray(pr) ? pr : [])
@@ -99,6 +124,9 @@ export default function ComercialPage() {
         setSlaEntrante(sEnt)
         setSlaEtapa(sEtp)
         setSlaContato(sCont)
+        setResumoFat(fatResumo && typeof fatResumo === "object" ? fatResumo : null)
+        setMunicipiosFat(Array.isArray(fatMun) ? fatMun : [])
+        setVencendoFat(Array.isArray(fatVenc) ? fatVenc.length : null)
       })
       .catch(() =>
         setNotification({ type: "error", message: "Erro ao carregar a visão geral comercial" }),
@@ -192,6 +220,11 @@ export default function ComercialPage() {
     }))
   }, [entrantes, processos])
 
+  const topMunicipiosFat = useMemo(
+    () => [...municipiosFat].sort((a, b) => b.receita - a.receita).slice(0, 8).map((m) => ({ municipio: m.municipio, receita: m.receita })),
+    [municipiosFat],
+  )
+
   // ---- SLA por fase ----
   const barrasSla = useMemo(
     () =>
@@ -226,6 +259,16 @@ export default function ComercialPage() {
           subtitle="Entrante + etapas + contato"
           color={slaCombinado === null ? "text-slate-400" : slaCombinado >= 80 ? "text-green-600" : slaCombinado >= 50 ? "text-amber-600" : "text-red-600"}
         />
+      </div>
+
+      <div>
+        <h2 className="mb-3 text-sm font-semibold text-slate-700">Faturamento</h2>
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <KpiCard icon={DollarSign} title="Receita Total" value={loading ? "…" : moeda(resumoFat?.receita_total)} subtitle="Contratos de compartilhamento" color="text-primary" />
+          <KpiCard icon={FileSignature} title="Contratos Ativos" value={loading ? "…" : (resumoFat?.contratos_ativos ?? "—")} subtitle="Status ativo" color="text-teal-600" />
+          <KpiCard icon={Users} title="Clientes Faturados" value={loading ? "…" : (resumoFat?.clientes ?? "—")} subtitle="CNPJs distintos" color="text-indigo-600" />
+          <KpiCard icon={CalendarClock} title="Contratos Vencendo" value={loading ? "…" : (vencendoFat ?? "—")} subtitle="Nos próximos 90 dias" color="text-amber-600" />
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -263,10 +306,19 @@ export default function ComercialPage() {
           )}
         </SecaoCard>
 
+        <SecaoCard titulo="Receita por município" descricao="Top municípios por receita de contratos de compartilhamento.">
+          {loading ? (
+            <div className="flex h-[280px] items-center justify-center text-sm text-slate-400">Carregando...</div>
+          ) : topMunicipiosFat.length === 0 ? (
+            <div className="flex h-[280px] items-center justify-center text-sm text-slate-400">Sem dados de faturamento.</div>
+          ) : (
+            <BarrasReceitaMunicipio dados={topMunicipiosFat} />
+          )}
+        </SecaoCard>
+
         <SecaoCard
           titulo="Cumprimento de SLA por fase"
           descricao="Percentual resolvido dentro do prazo, histórico de cada fase."
-          className="xl:col-span-2"
         >
           {loading ? (
             <div className="flex h-[240px] items-center justify-center text-sm text-slate-400">Carregando...</div>
