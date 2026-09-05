@@ -463,7 +463,7 @@ export default function AnaliseRedePage() {
             </div>
           )}
 
-          <div className="relative h-[460px] w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+          <div className="relative h-[70vh] min-h-[460px] w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm">
             <MapaMapLibre
               postes={postesMapa}
               segmentos={segmentosDesenho}
