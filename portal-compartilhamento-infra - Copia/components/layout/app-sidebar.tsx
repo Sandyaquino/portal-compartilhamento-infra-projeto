@@ -16,7 +16,6 @@ import {
   FileText,
   ReceiptText,
   ClipboardCheck,
-  Share2,
   Users,
   ShieldCheck,
   ChevronDown,
@@ -27,6 +26,12 @@ import {
   FolderKanban,
   Inbox,
   ListTodo,
+  SearchCheck,
+  HardHat,
+  Route,
+  Wallet,
+  UsersRound,
+  UserCog,
 } from "lucide-react"
 
 import {
@@ -146,32 +151,32 @@ const menuItems = [
       {
         title: "Fiscalização",
         url: "/operacao/fiscalizacao",
-        icon: ClipboardCheck,
+        icon: SearchCheck,
       },
       {
         title: "Execução",
         url: "/operacao/execucao",
-        icon: ClipboardCheck,
+        icon: HardHat,
       },
       {
         title: "Carteira",
         url: "/operacao/carteira",
-        icon: Share2,
+        icon: Route,
       },
       {
         title: "Despesas",
         url: "/operacao/despesas",
-        icon: Share2,
+        icon: Wallet,
       },
       {
         title: "Cadastro de Equipes",
         url: "/operacao/cadastro_equipe",
-        icon: Share2,
+        icon: UsersRound,
       },
       {
         title: "Cadastro de Técnicos",
         url: "/operacao/cadastro_tecnico",
-        icon: Share2,
+        icon: UserCog,
       },
     ],
   },
