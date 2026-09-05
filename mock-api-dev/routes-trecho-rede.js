@@ -39,15 +39,41 @@ function _temOcupacaoNaoIdentificada(barr) {
     : false
 }
 
-function _trechosNoEscopo({ municipio, alimentador, entidade }) {
+// bbox opcional: mantém o trecho se qualquer uma das pontas cai na caixa
+// (assim o desenho não "corta" trechos que atravessam a borda do viewport).
+function _trechoNaCaixa(t, cx) {
+  if (!cx) return true
+  const dentro = (x, y) => x >= cx.min_x && x <= cx.max_x && y >= cx.min_y && y <= cx.max_y
+  return (
+    dentro(t.LONGITUDE_INICIAL, t.LATITUDE_INICIAL) || dentro(t.LONGITUDE_FINAL, t.LATITUDE_FINAL)
+  )
+}
+
+function _trechosNoEscopo({ municipio, alimentador, entidade, caixa }) {
   const ent = entidade && ENTIDADES.includes(entidade) ? entidade : null
   return db.redeTrechos.filter(
     (t) =>
       t.ATIVO === "S" &&
       (!municipio || t.MUNICIPIO === municipio) &&
       (!alimentador || t.ALIMENTADOR === alimentador) &&
-      (!ent || t.ENTIDADE === ent),
+      (!ent || t.ENTIDADE === ent) &&
+      _trechoNaCaixa(t, caixa),
   )
+}
+
+function _lerCaixa(query) {
+  const n = (k) => {
+    const bruto = query.get(k)
+    if (bruto === null || bruto === "") return null
+    const v = Number(bruto)
+    return Number.isFinite(v) ? v : null
+  }
+  const min_x = n("min_x")
+  const max_x = n("max_x")
+  const min_y = n("min_y")
+  const max_y = n("max_y")
+  if ([min_x, max_x, min_y, max_y].some((v) => v === null)) return null
+  return { min_x, max_x, min_y, max_y }
 }
 
 // Monta lista de adjacência + info de nó a partir de uma lista de trechos.
@@ -265,14 +291,28 @@ function registrar(router) {
   })
 
   router.get("/api/trecho-rede/municipios", (req, res) => {
-    const cont = new Map()
+    const agg = new Map()
     for (const t of db.redeTrechos) {
-      if (t.ATIVO !== "S") continue
-      cont.set(t.MUNICIPIO, (cont.get(t.MUNICIPIO) || 0) + 1)
+      if (t.ATIVO !== "S" || !t.MUNICIPIO) continue
+      let m = agg.get(t.MUNICIPIO)
+      if (!m) {
+        m = { MUNICIPIO: t.MUNICIPIO, TRECHOS: 0, min_x: Infinity, max_x: -Infinity, min_y: Infinity, max_y: -Infinity }
+        agg.set(t.MUNICIPIO, m)
+      }
+      m.TRECHOS++
+      for (const [x, y] of [
+        [t.LONGITUDE_INICIAL, t.LATITUDE_INICIAL],
+        [t.LONGITUDE_FINAL, t.LATITUDE_FINAL],
+      ]) {
+        m.min_x = Math.min(m.min_x, x)
+        m.max_x = Math.max(m.max_x, x)
+        m.min_y = Math.min(m.min_y, y)
+        m.max_y = Math.max(m.max_y, y)
+      }
     }
-    const lista = [...cont.entries()]
-      .map(([MUNICIPIO, TRECHOS]) => ({ MUNICIPIO, TRECHOS }))
-      .sort((a, b) => b.TRECHOS - a.TRECHOS || a.MUNICIPIO.localeCompare(b.MUNICIPIO))
+    const lista = [...agg.values()].sort(
+      (a, b) => b.TRECHOS - a.TRECHOS || a.MUNICIPIO.localeCompare(b.MUNICIPIO),
+    )
     enviarJson(res, 200, lista)
   })
 
@@ -290,22 +330,23 @@ function registrar(router) {
     enviarJson(res, 200, lista)
   })
 
-  // Trechos (linhas) + nós no escopo, para desenhar a rede no mapa.
+  // Trechos (linhas) no escopo + caixa do viewport, para desenhar a rede aos
+  // poucos (mesma lógica do /api/postes/mapa): só o que cabe na área visível,
+  // com teto e flag `truncado` pro front pedir mais zoom.
   router.get("/api/trecho-rede/mapa", (req, res, ctx) => {
     const municipio = (ctx.query.get("municipio") || "").trim()
     if (!municipio) return erroDetalhe(res, 400, "Informe o município.")
     const alimentador = (ctx.query.get("alimentador") || "").trim() || null
     const entidade = ctx.query.get("entidade")
-    const trechos = _trechosNoEscopo({ municipio, alimentador, entidade })
-    const { no } = _montarGrafo(trechos)
-    const nos = [...no.values()].map((n) => ({
-      ...n,
-      TEM_PROVEDOR: db.provedoresDoBarramento(n.BARRAMENTO).length > 0 ? "S" : "N",
-    }))
+    const caixa = _lerCaixa(ctx.query)
+    const TETO = 5000
+    const trechos = _trechosNoEscopo({ municipio, alimentador, entidade, caixa })
+    const truncado = trechos.length > TETO
+    const usados = truncado ? trechos.slice(0, TETO) : trechos
     enviarJson(res, 200, {
       total: trechos.length,
-      truncado: trechos.length > 6000,
-      segmentos: trechos.slice(0, 6000).map((t) => ({
+      truncado,
+      segmentos: usados.map((t) => ({
         ax: t.LONGITUDE_INICIAL,
         ay: t.LATITUDE_INICIAL,
         bx: t.LONGITUDE_FINAL,
@@ -314,7 +355,6 @@ function registrar(router) {
         alimentador: t.ALIMENTADOR,
         implicado: false,
       })),
-      nos: nos.slice(0, 8000),
     })
   })
 

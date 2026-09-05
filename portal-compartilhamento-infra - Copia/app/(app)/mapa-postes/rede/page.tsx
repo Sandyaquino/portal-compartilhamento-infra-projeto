@@ -1,9 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { AlertTriangle, ArrowLeft, Cable, MapPin, Radar, Route as RouteIcon, Zap } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Cable, Info, MapPin, Radar, Route as RouteIcon, Zap } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { KpiCard } from "@/components/comercial/kpi-card"
@@ -27,10 +27,14 @@ import type {
   AlimentadorRede,
   AnaliseRedeResposta,
   EntidadeTrecho,
+  MapaRedeResposta,
   ModoAnaliseRede,
   MunicipioRede,
   PosteNaoFaturado,
+  SegmentoRedeApi,
 } from "@/lib/types/trecho-rede"
+
+const DEBOUNCE_MS = 400
 
 const MapaMapLibre = dynamic(() => import("@/components/mapa-postes/mapa-maplibre"), {
   ssr: false,
@@ -86,6 +90,15 @@ export default function AnaliseRedePage() {
   const [contextoAcao, setContextoAcao] = useState<{ barramentos: string[]; titulo: string } | null>(null)
   const [usuarios, setUsuarios] = useState<UsuarioOpcao[]>([])
 
+  // Rede desenhada aos poucos: só os trechos que cabem no viewport atual
+  // (mesma lógica do carregamento dos pontos em /mapa-postes).
+  const [segmentosViewport, setSegmentosViewport] = useState<SegmentoRedeApi[]>([])
+  const [redeTruncada, setRedeTruncada] = useState(false)
+  const [carregandoRede, setCarregandoRede] = useState(false)
+  const viewportRef = useRef<ViewportBounds | null>(null)
+  const municipioAnteriorRef = useRef("")
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
     apiFetch(`/api/trecho-rede/municipios`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : []))
@@ -113,6 +126,77 @@ export default function AnaliseRedePage() {
       .then((d: AlimentadorRede[]) => setAlimentadores(Array.isArray(d) ? d : []))
       .catch(() => setAlimentadores([]))
   }, [municipio])
+
+  // Carrega os trechos que cabem numa caixa (viewport), com teto e flag
+  // `truncado` — igual ao /api/postes/mapa dos pontos.
+  const carregarRede = useCallback(
+    async (bounds: ViewportBounds, escopo: { municipio: string; alimentador: string; entidade: string }) => {
+      if (!escopo.municipio) {
+        setSegmentosViewport([])
+        setRedeTruncada(false)
+        return
+      }
+      setCarregandoRede(true)
+      try {
+        const p = new URLSearchParams({
+          municipio: escopo.municipio,
+          min_x: String(bounds.min_x),
+          max_x: String(bounds.max_x),
+          min_y: String(bounds.min_y),
+          max_y: String(bounds.max_y),
+        })
+        if (escopo.alimentador) p.set("alimentador", escopo.alimentador)
+        if (escopo.entidade) p.set("entidade", escopo.entidade)
+        const res = await apiFetch(`/api/trecho-rede/mapa?${p.toString()}`, { cache: "no-store" })
+        if (!res.ok) throw new Error(String(res.status))
+        const dados = (await res.json()) as MapaRedeResposta
+        setSegmentosViewport(dados.segmentos ?? [])
+        setRedeTruncada(Boolean(dados.truncado))
+      } catch {
+        // desenho da rede é auxiliar — falha aqui não trava a análise
+      } finally {
+        setCarregandoRede(false)
+      }
+    },
+    [],
+  )
+
+  // Função simples (recriada a cada render, com os filtros atuais no closure).
+  // O MapaMapLibre guarda o callback num ref atualizado por efeito, então o
+  // handler nunca fica com filtro velho.
+  function agendarCargaRede(bounds: ViewportBounds) {
+    viewportRef.current = bounds
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    const escopo = { municipio, alimentador, entidade }
+    debounceRef.current = setTimeout(() => carregarRede(bounds, escopo), DEBOUNCE_MS)
+  }
+
+  // Refaz o desenho quando muda o recorte (município/alimentador/tipo),
+  // reaproveitando o viewport atual. Some com a análise antiga (fica stale).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setResultado(null)
+    setSelecionado(null)
+    if (!municipio) {
+      setSegmentosViewport([])
+      setRedeTruncada(false)
+      municipioAnteriorRef.current = ""
+      return
+    }
+    // trocou de município: voa até a extensão dele (o carregamento por
+    // viewport parte da nova área, disparado pelo moveend do mapa).
+    if (municipio !== municipioAnteriorRef.current) {
+      municipioAnteriorRef.current = municipio
+      const m = municipios.find((x) => x.MUNICIPIO === municipio)
+      if (m) {
+        setVooPara({ min_x: m.min_x, max_x: m.max_x, min_y: m.min_y, max_y: m.max_y })
+        return
+      }
+    }
+    // só mudou alimentador/tipo: recarrega o viewport atual
+    if (viewportRef.current) carregarRede(viewportRef.current, { municipio, alimentador, entidade })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [municipio, alimentador, entidade])
 
   const analisar = useCallback(async () => {
     if (!municipio) {
@@ -153,6 +237,13 @@ export default function AnaliseRedePage() {
   }, [municipio, alimentador, entidade, modo, maxTrechos, mesmoAlimentador, minScore, idOperadora])
 
   const postesMapa = useMemo(() => (resultado?.postes ?? []).map(posteParaMapa), [resultado])
+
+  // Desenho da rede = trechos do viewport + o corredor implicado da análise
+  // (poucos, sempre visíveis por cima).
+  const segmentosDesenho = useMemo<SegmentoRedeApi[]>(() => {
+    const implicados = (resultado?.segmentos ?? []).filter((s) => s.implicado)
+    return [...segmentosViewport, ...implicados]
+  }, [segmentosViewport, resultado])
 
   function abrirAcao(barramentos: string[], titulo: string) {
     setContextoAcao({ barramentos, titulo })
@@ -363,11 +454,20 @@ export default function AnaliseRedePage() {
             />
           </div>
 
-          <div className="relative h-[420px] w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+          {municipio && (redeTruncada || carregandoRede) && (
+            <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+              <Info className="h-4 w-4 shrink-0" />
+              {redeTruncada
+                ? "Muitos trechos nesta área — mostrando só uma parte da rede. Dê zoom para ver o restante."
+                : "Carregando a rede da área visível…"}
+            </div>
+          )}
+
+          <div className="relative h-[460px] w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm">
             <MapaMapLibre
               postes={postesMapa}
-              segmentos={resultado?.segmentos ?? []}
-              onMudarViewport={() => {}}
+              segmentos={segmentosDesenho}
+              onMudarViewport={agendarCargaRede}
               onSelecionarPoste={(p) => {
                 const achado = resultado?.postes.find((x) => x.BARRAMENTO === p.BARRAMENTO)
                 if (achado) setSelecionado(achado)
@@ -378,8 +478,8 @@ export default function AnaliseRedePage() {
             />
             <div className="pointer-events-none absolute bottom-2 left-2 flex flex-wrap gap-2 rounded-lg bg-white/90 px-2 py-1 text-[10px] text-slate-500 shadow">
               <span className="flex items-center gap-1"><span className="h-0.5 w-4 bg-red-600" /> corredor implicado</span>
-              <span className="flex items-center gap-1"><span className="h-0.5 w-4" style={{ background: "rgba(37,99,235,0.4)" }} /> BT</span>
-              <span className="flex items-center gap-1"><span className="h-0.5 w-4" style={{ background: "rgba(124,58,237,0.55)" }} /> MT</span>
+              <span className="flex items-center gap-1"><span className="h-[3px] w-4 rounded" style={{ background: "rgba(147,51,234,0.75)" }} /> MT (média tensão)</span>
+              <span className="flex items-center gap-1"><span className="h-0.5 w-4 rounded" style={{ background: "rgba(37,99,235,0.5)" }} /> BT (baixa tensão)</span>
               <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500" /> poste sinalizado</span>
             </div>
           </div>

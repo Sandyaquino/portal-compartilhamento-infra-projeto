@@ -112,7 +112,14 @@ def _mts(ax: float, ay: float, bx: float, by: float) -> float:
 # ------------------------------------------------------------------
 # Carga do escopo + grafo
 # ------------------------------------------------------------------
-def _carregar_trechos(cursor, municipio: str, alimentador: Optional[str], entidade: Optional[str]) -> List[dict]:
+def _carregar_trechos(
+    cursor,
+    municipio: str,
+    alimentador: Optional[str],
+    entidade: Optional[str],
+    caixa: Optional[dict] = None,
+    limite: Optional[int] = None,
+) -> List[dict]:
     sql = f"""
         SELECT "ID_TRECHO", "MUNICIPIO", "BARRAMENTO_INICIAL", "LONGITUDE_INICIAL", "LATITUDE_INICIAL",
                "BARRAMENTO_FINAL", "LONGITUDE_FINAL", "LATITUDE_FINAL", "ALIMENTADOR",
@@ -128,6 +135,20 @@ def _carregar_trechos(cursor, municipio: str, alimentador: Optional[str], entida
     if entidade in ENTIDADES:
         sql += ' AND "ENTIDADE" = ?'
         params.append(entidade)
+    if caixa:
+        # mantém o trecho se qualquer ponta cai na caixa do viewport
+        sql += """
+          AND (
+              ("LONGITUDE_INICIAL" BETWEEN ? AND ? AND "LATITUDE_INICIAL" BETWEEN ? AND ?)
+           OR ("LONGITUDE_FINAL"   BETWEEN ? AND ? AND "LATITUDE_FINAL"   BETWEEN ? AND ?)
+          )
+        """
+        params += [
+            caixa["min_x"], caixa["max_x"], caixa["min_y"], caixa["max_y"],
+            caixa["min_x"], caixa["max_x"], caixa["min_y"], caixa["max_y"],
+        ]
+    if limite:
+        sql += f" LIMIT {int(limite)}"
     cursor.execute(sql, params)
     return _rows(cursor)
 
@@ -443,12 +464,26 @@ def municipios_rede():
         conn.commit()
         cursor.execute(
             f"""
-            SELECT "MUNICIPIO", COUNT(*) AS TRECHOS
+            SELECT "MUNICIPIO", COUNT(*) AS TRECHOS,
+                   MIN(LEAST("LONGITUDE_INICIAL", "LONGITUDE_FINAL")) AS MIN_X,
+                   MAX(GREATEST("LONGITUDE_INICIAL", "LONGITUDE_FINAL")) AS MAX_X,
+                   MIN(LEAST("LATITUDE_INICIAL", "LATITUDE_FINAL")) AS MIN_Y,
+                   MAX(GREATEST("LATITUDE_INICIAL", "LATITUDE_FINAL")) AS MAX_Y
             FROM {TB_TRECHO} WHERE "ATIVO" = 'S' AND "MUNICIPIO" IS NOT NULL
             GROUP BY "MUNICIPIO" ORDER BY TRECHOS DESC, "MUNICIPIO"
             """
         )
-        return [{"MUNICIPIO": r[0], "TRECHOS": int(r[1])} for r in cursor.fetchall()]
+        return [
+            {
+                "MUNICIPIO": r[0],
+                "TRECHOS": int(r[1]),
+                "min_x": _num(r[2]),
+                "max_x": _num(r[3]),
+                "min_y": _num(r[4]),
+                "max_y": _num(r[5]),
+            }
+            for r in cursor.fetchall()
+        ]
     finally:
         if cursor:
             cursor.close()
@@ -486,29 +521,38 @@ def mapa_rede(
     municipio: str = Query(...),
     alimentador: Optional[str] = Query(None),
     entidade: Optional[str] = Query(None),
+    min_x: Optional[float] = Query(None),
+    max_x: Optional[float] = Query(None),
+    min_y: Optional[float] = Query(None),
+    max_y: Optional[float] = Query(None),
 ):
+    """Trechos no escopo + caixa do viewport, para desenhar a rede aos poucos
+    (mesma lógica do /api/postes/mapa): só o que cabe na área visível, com
+    teto e flag `truncado`."""
+    TETO = 5000
+    caixa = None
+    if None not in (min_x, max_x, min_y, max_y):
+        caixa = {"min_x": min_x, "max_x": max_x, "min_y": min_y, "max_y": max_y}
     conn = cursor = None
     try:
         conn, cursor = _conn()
         _garantir_tabela(cursor)
         conn.commit()
-        trechos = _carregar_trechos(cursor, municipio, alimentador or None, entidade)
-        _, nos = _grafo(trechos)
-        prov, _sem = _provedores_por_no(cursor, list(nos.keys()))
+        trechos = _carregar_trechos(
+            cursor, municipio, alimentador or None, entidade, caixa, limite=TETO + 1
+        )
+        truncado = len(trechos) > TETO
+        usados = trechos[:TETO]
         return {
             "total": len(trechos),
-            "truncado": len(trechos) > 6000,
+            "truncado": truncado,
             "segmentos": [
                 {
                     "ax": t["LONGITUDE_INICIAL"], "ay": t["LATITUDE_INICIAL"],
                     "bx": t["LONGITUDE_FINAL"], "by": t["LATITUDE_FINAL"],
                     "entidade": t["ENTIDADE"], "alimentador": t["ALIMENTADOR"], "implicado": False,
                 }
-                for t in trechos[:6000]
-            ],
-            "nos": [
-                {**n, "TEM_PROVEDOR": "S" if prov.get(n["BARRAMENTO"]) else "N"}
-                for n in list(nos.values())[:8000]
+                for t in usados
             ],
         }
     finally:

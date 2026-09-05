@@ -18,7 +18,14 @@ export type ResumoRede = {
   nos: number
 }
 
-export type MunicipioRede = { MUNICIPIO: string; TRECHOS: number }
+export type MunicipioRede = {
+  MUNICIPIO: string
+  TRECHOS: number
+  min_x: number
+  max_x: number
+  min_y: number
+  max_y: number
+}
 export type AlimentadorRede = { ALIMENTADOR: string; TRECHOS: number }
 
 export type SegmentoRedeApi = {
@@ -45,7 +52,6 @@ export type MapaRedeResposta = {
   total: number
   truncado: boolean
   segmentos: SegmentoRedeApi[]
-  nos: NoRede[]
 }
 
 export type ProvedorImplicado = { chave: string; razao: string }

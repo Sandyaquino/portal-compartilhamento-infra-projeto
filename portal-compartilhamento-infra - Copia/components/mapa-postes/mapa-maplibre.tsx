@@ -341,11 +341,17 @@ export default function MapaMapLibre({
           const p2 = map.project([s.bx, s.by])
           const mt = s.entidade === "TRECHO DE MT"
           if (implicadoPass) {
+            // corredor suspeito: vermelho, por cima de tudo
             ctx.strokeStyle = "#dc2626"
-            ctx.lineWidth = mt ? 4 : 3
+            ctx.lineWidth = mt ? 4.5 : 3.5
+          } else if (mt) {
+            // média tensão: roxo, traço mais grosso (é o tronco)
+            ctx.strokeStyle = "rgba(147,51,234,0.75)"
+            ctx.lineWidth = 2.6
           } else {
-            ctx.strokeStyle = mt ? "rgba(124,58,237,0.55)" : "rgba(37,99,235,0.4)"
-            ctx.lineWidth = mt ? 2 : 1.25
+            // baixa tensão: azul, traço fino (são os ramais)
+            ctx.strokeStyle = "rgba(37,99,235,0.5)"
+            ctx.lineWidth = 1.4
           }
           ctx.beginPath()
           ctx.moveTo(p1.x, p1.y)
