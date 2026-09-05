@@ -256,6 +256,53 @@ function registrar(router) {
     enviarJson(res, 200, lista)
   })
 
+  // Municípios em que a operadora tem postes ocupados (via Base Coelba, que
+  // é onde mora o MUNICIPIO). Cada item traz a caixa (bounds) pra o mapa dar
+  // fitBounds direto nos pontos da operadora naquele município.
+  router.get("/api/postes/operadora-municipios", (req, res, ctx) => {
+    const bruto = ctx.query.get("id_operadora")
+    const id = Number(bruto)
+    if (!bruto || !Number.isFinite(id)) return erroDetalhe(res, 400, "Informe id_operadora")
+
+    const barramentos = new Set(
+      db.ocupacoes.filter((o) => o._idOperadora === id).map((o) => o.BARRAMENTO)
+    )
+    const porMunicipio = new Map()
+    for (const bp of db.basePostes) {
+      if (bp.ATIVO === "N" || !barramentos.has(bp.DE_BARRAMENTO)) continue
+      let m = porMunicipio.get(bp.MUNICIPIO)
+      if (!m) {
+        m = {
+          MUNICIPIO: bp.MUNICIPIO,
+          _barr: new Set(),
+          min_x: Infinity,
+          max_x: -Infinity,
+          min_y: Infinity,
+          max_y: -Infinity,
+        }
+        porMunicipio.set(bp.MUNICIPIO, m)
+      }
+      m._barr.add(bp.DE_BARRAMENTO)
+      m.min_x = Math.min(m.min_x, bp.NU_LONGITUDE)
+      m.max_x = Math.max(m.max_x, bp.NU_LONGITUDE)
+      m.min_y = Math.min(m.min_y, bp.NU_LATITUDE)
+      m.max_y = Math.max(m.max_y, bp.NU_LATITUDE)
+    }
+
+    const lista = [...porMunicipio.values()]
+      .map((m) => ({
+        MUNICIPIO: m.MUNICIPIO,
+        TOTAL: m._barr.size,
+        min_x: m.min_x,
+        max_x: m.max_x,
+        min_y: m.min_y,
+        max_y: m.max_y,
+      }))
+      .sort((a, b) => b.TOTAL - a.TOTAL || a.MUNICIPIO.localeCompare(b.MUNICIPIO))
+
+    enviarJson(res, 200, lista)
+  })
+
   router.patch("/api/postes/acoes/:id", async (req, res, ctx) => {
     const acao = db.acoes.find((a) => a.ID_ACAO === Number(ctx.params.id))
     if (!acao) return erroDetalhe(res, 404, "Ação não encontrada")

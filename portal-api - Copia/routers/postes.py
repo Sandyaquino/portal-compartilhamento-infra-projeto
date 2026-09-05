@@ -19,6 +19,7 @@ TB_OPERADORA = f'{SCHEMA}."PORTAL_COMPARTILHAMENTO_OPERADORA"'
 TB_OCUPACAO = f'{SCHEMA}."PORTAL_COMPARTILHAMENTO_POSTE_OCUPACAO"'
 TB_ACAO = f'{SCHEMA}."PORTAL_COMPARTILHAMENTO_ACAO_POSTE"'
 TB_ACAO_ITEM = f'{SCHEMA}."PORTAL_COMPARTILHAMENTO_ACAO_POSTE_ITEM"'
+TB_BASE = f'{SCHEMA}."PORTAL_COMPARTILHAMENTO_BASE_POSTE"'
 
 LIMITE_PONTOS_MAPA = 3000
 STATUS_VALIDOS = {"identificado", "nao_identificado"}
@@ -172,6 +173,79 @@ def listar_operadoras():
             """
         )
         return _linhas_para_dicts(cursor)
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@router.get("/api/postes/por-operadora", response_model=List[dict])
+def listar_postes_por_operadora(id_operadora: int = Query(...)):
+    """Parque inteiro da operadora (sem recorte de viewport) — só o essencial
+    pra o front calcular o fitBounds ao clicar em 'Ver no mapa'."""
+    conn = None
+    cursor = None
+    try:
+        conn = main.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT DISTINCT P."BARRAMENTO", P."X", P."Y"
+            FROM {TB_POSTE} P
+            WHERE EXISTS (
+                SELECT 1 FROM {TB_OCUPACAO} O
+                WHERE O."BARRAMENTO" = P."BARRAMENTO" AND O."ID_OPERADORA" = ?
+            )
+            """,
+            [id_operadora],
+        )
+        return _linhas_para_dicts(cursor)
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@router.get("/api/postes/operadora-municipios", response_model=List[dict])
+def listar_municipios_da_operadora(id_operadora: int = Query(...)):
+    """Municípios em que a operadora tem postes ocupados. O MUNICIPIO vem da
+    Base de Postes Coelba (join por barramento); cada item traz a caixa
+    (bounds) pra o mapa dar fitBounds direto nos pontos dela no município."""
+    conn = None
+    cursor = None
+    try:
+        conn = main.get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT BP."MUNICIPIO" AS "MUNICIPIO",
+                   COUNT(DISTINCT BP."DE_BARRAMENTO") AS "TOTAL",
+                   MIN(BP."NU_LONGITUDE") AS "MIN_X", MAX(BP."NU_LONGITUDE") AS "MAX_X",
+                   MIN(BP."NU_LATITUDE")  AS "MIN_Y", MAX(BP."NU_LATITUDE")  AS "MAX_Y"
+            FROM {TB_OCUPACAO} O
+            JOIN {TB_BASE} BP ON BP."DE_BARRAMENTO" = O."BARRAMENTO"
+            WHERE O."ID_OPERADORA" = ?
+              AND BP."ATIVO" = 'S'
+              AND BP."MUNICIPIO" IS NOT NULL
+            GROUP BY BP."MUNICIPIO"
+            ORDER BY "TOTAL" DESC, "MUNICIPIO" ASC
+            """,
+            [id_operadora],
+        )
+        linhas = _linhas_para_dicts(cursor)
+        return [
+            {
+                "MUNICIPIO": r["MUNICIPIO"],
+                "TOTAL": int(r["TOTAL"] or 0),
+                "min_x": r["MIN_X"],
+                "max_x": r["MAX_X"],
+                "min_y": r["MIN_Y"],
+                "max_y": r["MAX_Y"],
+            }
+            for r in linhas
+        ]
     finally:
         if cursor:
             cursor.close()

@@ -229,6 +229,16 @@ function MapaPostesConteudo() {
     }
   }
 
+  function zoomOperadoraMunicipio(
+    idOperadora: number,
+    bounds: { min_x: number; max_x: number; min_y: number; max_y: number },
+  ) {
+    // Garante que a operadora esteja marcada pra o parque desenhar os pontos
+    // dela, e voa até o município escolhido.
+    setIdsOperadoras((atual) => (atual.includes(idOperadora) ? atual : [...atual, idOperadora]))
+    setVooPara(bounds)
+  }
+
   async function verOperadoraNoMapa(id: number) {
     try {
       const response = await fetch(`${API_BASE_URL}/api/postes/por-operadora?id_operadora=${id}`, { cache: "no-store" })
@@ -695,6 +705,7 @@ function MapaPostesConteudo() {
             coresOperadoras={coresOperadoras}
             onMudarCorOperadora={mudarCorOperadora}
             onVerNoMapa={verOperadoraNoMapa}
+            onZoomOperadoraMunicipio={zoomOperadoraMunicipio}
           />
         )}
 

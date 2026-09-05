@@ -38,6 +38,18 @@ export type Operadora = {
   TOTAL_OCUPACOES: number
 }
 
+// GET /api/postes/operadora-municipios?id_operadora= — municípios onde a
+// operadora tem postes ocupados, com a caixa (bounds) para dar fitBounds
+// direto nos pontos dela naquele município.
+export type MunicipioOperadora = {
+  MUNICIPIO: string
+  TOTAL: number
+  min_x: number
+  max_x: number
+  min_y: number
+  max_y: number
+}
+
 export type ResumoPostes = {
   total_postes: number
   total_ocupacoes: number

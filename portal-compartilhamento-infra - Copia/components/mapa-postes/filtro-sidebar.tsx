@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Crosshair, Search } from "lucide-react"
+import { ChevronDown, Crosshair, MapPin, Search } from "lucide-react"
 
 import { FilterField } from "@/components/ui/filter-field"
 import {
@@ -11,13 +11,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { apiFetch } from "@/lib/config"
 import {
   corPadraoOperadora,
   SATURACAO_INFO,
+  type MunicipioOperadora,
   type Operadora,
   type SaturacaoFiltro,
   type StatusFiltro,
 } from "@/lib/types/postes"
+
+export type BoundsMapa = { min_x: number; max_x: number; min_y: number; max_y: number }
 
 const FILTRO_TODOS = "__todos__"
 
@@ -34,6 +38,7 @@ type FiltroSidebarProps = {
   coresOperadoras: Record<number, string>
   onMudarCorOperadora: (id: number, cor: string) => void
   onVerNoMapa?: (id: number) => void
+  onZoomOperadoraMunicipio?: (idOperadora: number, bounds: BoundsMapa) => void
 }
 
 export function FiltroSidebar({
@@ -47,8 +52,26 @@ export function FiltroSidebar({
   coresOperadoras,
   onMudarCorOperadora,
   onVerNoMapa,
+  onZoomOperadoraMunicipio,
 }: FiltroSidebarProps) {
   const [busca, setBusca] = useState("")
+  const [operadoraExpandida, setOperadoraExpandida] = useState<number | null>(null)
+  const [municipiosPorOperadora, setMunicipiosPorOperadora] = useState<
+    Record<number, MunicipioOperadora[] | "carregando" | "erro">
+  >({})
+
+  function alternarMunicipios(id: number) {
+    const abrindo = operadoraExpandida !== id
+    setOperadoraExpandida(abrindo ? id : null)
+    if (!abrindo || municipiosPorOperadora[id]) return
+    setMunicipiosPorOperadora((atual) => ({ ...atual, [id]: "carregando" }))
+    apiFetch(`/api/postes/operadora-municipios?id_operadora=${id}`, { cache: "no-store" })
+      .then((resposta) => (resposta.ok ? resposta.json() : Promise.reject(new Error("falhou"))))
+      .then((dados: MunicipioOperadora[]) =>
+        setMunicipiosPorOperadora((atual) => ({ ...atual, [id]: dados })),
+      )
+      .catch(() => setMunicipiosPorOperadora((atual) => ({ ...atual, [id]: "erro" })))
+  }
 
   const operadorasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase()
@@ -130,49 +153,104 @@ export function FiltroSidebar({
             {operadorasFiltradas.map((operadora) => {
               const marcado = idsOperadoras.includes(operadora.ID)
               const cor = coresOperadoras[operadora.ID] ?? corPadraoOperadora(operadora.ID)
+              const expandida = operadoraExpandida === operadora.ID
+              const municipios = municipiosPorOperadora[operadora.ID]
               return (
-                <div
-                  key={operadora.ID}
-                  className="flex items-center gap-2 border-b border-slate-100 px-2.5 py-2 text-sm last:border-b-0 hover:bg-slate-50"
-                >
-                  <input
-                    type="checkbox"
-                    checked={marcado}
-                    onChange={(event) => alternarOperadora(operadora.ID, event.target.checked)}
-                    className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-primary focus:ring-primary"
-                  />
-                  <span
-                    className="relative h-3.5 w-3.5 shrink-0 overflow-hidden rounded-full border border-black/10"
-                    style={{ backgroundColor: cor }}
-                    title="Clique pra escolher a cor desta operadora"
-                  >
+                <div key={operadora.ID} className="border-b border-slate-100 last:border-b-0">
+                  <div className="flex items-center gap-2 px-2.5 py-2 text-sm hover:bg-slate-50">
                     <input
-                      type="color"
-                      value={cor}
-                      onChange={(event) => onMudarCorOperadora(operadora.ID, event.target.value)}
-                      className="absolute -inset-1 cursor-pointer opacity-0"
+                      type="checkbox"
+                      checked={marcado}
+                      onChange={(event) => alternarOperadora(operadora.ID, event.target.checked)}
+                      className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 text-primary focus:ring-primary"
                     />
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => alternarOperadora(operadora.ID, !marcado)}
-                    className="min-w-0 flex-1 truncate text-left text-slate-700"
-                    title={operadora.RAZAO_SOCIAL}
-                  >
-                    {operadora.RAZAO_SOCIAL}
-                  </button>
-                  <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500">
-                    {operadora.TOTAL_OCUPACOES}
-                  </span>
-                  {onVerNoMapa && (
+                    <span
+                      className="relative h-3.5 w-3.5 shrink-0 overflow-hidden rounded-full border border-black/10"
+                      style={{ backgroundColor: cor }}
+                      title="Clique pra escolher a cor desta operadora"
+                    >
+                      <input
+                        type="color"
+                        value={cor}
+                        onChange={(event) => onMudarCorOperadora(operadora.ID, event.target.value)}
+                        className="absolute -inset-1 cursor-pointer opacity-0"
+                      />
+                    </span>
                     <button
                       type="button"
-                      onClick={() => onVerNoMapa(operadora.ID)}
-                      className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-primary"
-                      title="Ver no mapa (dá zoom no parque desta operadora)"
+                      onClick={() => alternarOperadora(operadora.ID, !marcado)}
+                      className="min-w-0 flex-1 truncate text-left text-slate-700"
+                      title={operadora.RAZAO_SOCIAL}
                     >
-                      <Crosshair className="h-3.5 w-3.5" />
+                      {operadora.RAZAO_SOCIAL}
                     </button>
+                    <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-500">
+                      {operadora.TOTAL_OCUPACOES}
+                    </span>
+                    {onVerNoMapa && (
+                      <button
+                        type="button"
+                        onClick={() => onVerNoMapa(operadora.ID)}
+                        className="shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-primary"
+                        title="Ver no mapa (dá zoom no parque desta operadora)"
+                      >
+                        <Crosshair className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => alternarMunicipios(operadora.ID)}
+                      aria-expanded={expandida}
+                      className={`shrink-0 rounded p-1 hover:bg-slate-100 hover:text-primary ${
+                        expandida ? "text-primary" : "text-slate-400"
+                      }`}
+                      title="Municípios em que esta operadora atua"
+                    >
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expandida ? "rotate-180" : ""}`} />
+                    </button>
+                  </div>
+
+                  {expandida && (
+                    <div className="bg-slate-50 px-2.5 pb-2">
+                      {municipios === "carregando" && (
+                        <p className="px-1 py-1.5 text-xs text-slate-400">Carregando municípios…</p>
+                      )}
+                      {municipios === "erro" && (
+                        <p className="px-1 py-1.5 text-xs text-red-500">Não foi possível carregar os municípios.</p>
+                      )}
+                      {Array.isArray(municipios) && municipios.length === 0 && (
+                        <p className="px-1 py-1.5 text-xs text-slate-400">
+                          Sem municípios com postes desta operadora na base.
+                        </p>
+                      )}
+                      {Array.isArray(municipios) && municipios.length > 0 && (
+                        <ul className="flex flex-col gap-0.5">
+                          {municipios.map((m) => (
+                            <li key={m.MUNICIPIO}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onZoomOperadoraMunicipio?.(operadora.ID, {
+                                    min_x: m.min_x,
+                                    max_x: m.max_x,
+                                    min_y: m.min_y,
+                                    max_y: m.max_y,
+                                  })
+                                }
+                                className="flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xs text-slate-600 hover:bg-white hover:text-primary"
+                                title={`Dar zoom nos postes de ${operadora.RAZAO_SOCIAL} em ${m.MUNICIPIO}`}
+                              >
+                                <MapPin className="h-3 w-3 shrink-0 text-slate-400" />
+                                <span className="min-w-0 flex-1 truncate">{m.MUNICIPIO}</span>
+                                <span className="shrink-0 rounded-full bg-slate-200 px-1.5 py-0.5 font-medium text-slate-600">
+                                  {m.TOTAL.toLocaleString("pt-BR")}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   )}
                 </div>
               )
