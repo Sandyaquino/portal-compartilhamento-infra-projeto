@@ -1487,6 +1487,143 @@ def listar_carteiras():
             conn.close()
 
 
+@router.get("/api/carteira/gantt")
+def gantt_turmas(
+    mes: Optional[int] = Query(None),
+    ano: Optional[int] = Query(None),
+    status: str = Query("PUBLICADA,CONCLUIDA"),
+):
+    """Gantt das turmas com carteiras geradas e confirmadas, recortado por
+    mês/ano. Uma linha por turma; uma barra por carteira em que ela atua,
+    do primeiro ao último dia de OS dentro do mês."""
+    import calendar
+    from datetime import date as _date
+
+    hoje = _date.today()
+    m = int(mes or hoje.month)
+    a = int(ano or hoje.year)
+    if m < 1 or m > 12:
+        raise HTTPException(status_code=400, detail="mes deve estar entre 1 e 12")
+    status_list = [s.strip().upper() for s in (status or "").split(",") if s.strip()] or [
+        "PUBLICADA",
+        "CONCLUIDA",
+    ]
+
+    ultimo_dia = calendar.monthrange(a, m)[1]
+    inicio = f"{a:04d}-{m:02d}-01"
+    fim = f"{a:04d}-{m:02d}-{ultimo_dia:02d}"
+    dias_uteis = sum(1 for d in range(1, ultimo_dia + 1) if _date(a, m, d).weekday() < 5)
+
+    conn = cursor = None
+    try:
+        conn, cursor = _conn()
+        _garantir_tabelas(cursor)
+        conn.commit()
+        marc = ",".join(["?"] * len(status_list))
+        cursor.execute(
+            f"""
+            SELECT O.ID_CARTEIRA, O.ID_EQUIPE, O.NOME_EQUIPE, O.EPS, O.MUNICIPIO,
+                   TO_VARCHAR(O.DATA_PREVISTA, 'YYYY-MM-DD') AS DATA_PREVISTA, O.STATUS,
+                   C.TITULO, C.STATUS AS STATUS_CARTEIRA, C.MODO, C.ESTRATEGIA
+            FROM {TB_OS} O
+            JOIN {TB_CARTEIRA} C ON C.ID_CARTEIRA = O.ID_CARTEIRA
+            WHERE C.STATUS IN ({marc})
+              AND O.DATA_PREVISTA BETWEEN TO_DATE(?, 'YYYY-MM-DD') AND TO_DATE(?, 'YYYY-MM-DD')
+            ORDER BY O.NOME_EQUIPE, O.DATA_PREVISTA
+            """,
+            [*status_list, inicio, fim],
+        )
+        linhas = _rows(cursor)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+    turmas_map: Dict[Any, dict] = {}
+    for r in linhas:
+        chave = r.get("ID_EQUIPE") if r.get("ID_EQUIPE") is not None else r.get("NOME_EQUIPE")
+        t = turmas_map.setdefault(
+            chave,
+            {
+                "id_equipe": r.get("ID_EQUIPE"),
+                "nome": r.get("NOME_EQUIPE") or "—",
+                "eps": r.get("EPS"),
+                "_os": [],
+            },
+        )
+        t["_os"].append(r)
+
+    turmas = []
+    for t in turmas_map.values():
+        por_carteira: Dict[int, List[dict]] = {}
+        for o in t["_os"]:
+            por_carteira.setdefault(o["ID_CARTEIRA"], []).append(o)
+        barras = []
+        for idc, lista in por_carteira.items():
+            datas = sorted(o["DATA_PREVISTA"] for o in lista)
+            base = lista[0]
+            barras.append(
+                {
+                    "id_carteira": idc,
+                    "titulo": base.get("TITULO") or f"Carteira {idc}",
+                    "status": base.get("STATUS_CARTEIRA"),
+                    "modo": base.get("MODO"),
+                    "estrategia": base.get("ESTRATEGIA"),
+                    "inicio": datas[0],
+                    "fim": datas[-1],
+                    "os": len(lista),
+                    "os_executadas": sum(1 for o in lista if o.get("STATUS") == "EXECUTADA"),
+                    "municipios": sorted({o["MUNICIPIO"] for o in lista if o.get("MUNICIPIO")}),
+                    "dias": sorted(set(datas)),
+                }
+            )
+        barras.sort(key=lambda b: b["inicio"])
+        turmas.append(
+            {
+                "id_equipe": t["id_equipe"],
+                "nome": t["nome"],
+                "eps": t["eps"],
+                "total_os": len(t["_os"]),
+                "os_executadas": sum(1 for o in t["_os"] if o.get("STATUS") == "EXECUTADA"),
+                "dias_ocupados": len({o["DATA_PREVISTA"] for o in t["_os"]}),
+                "municipios": sorted({o["MUNICIPIO"] for o in t["_os"] if o.get("MUNICIPIO")}),
+                "barras": barras,
+            }
+        )
+    turmas.sort(key=lambda x: x["nome"])
+
+    total_dias_campo = sum(t["dias_ocupados"] for t in turmas)
+    numeros = {
+        "turmas": len(turmas),
+        "carteiras": len({r["ID_CARTEIRA"] for r in linhas}),
+        "os_planejadas": len(linhas),
+        "os_executadas": sum(1 for r in linhas if r.get("STATUS") == "EXECUTADA"),
+        "dias_campo": total_dias_campo,
+        "municipios": len({r["MUNICIPIO"] for r in linhas if r.get("MUNICIPIO")}),
+        "ocupacao_media": round(total_dias_campo / (len(turmas) * dias_uteis), 3)
+        if turmas and dias_uteis
+        else 0,
+    }
+
+    return {
+        "periodo": {
+            "mes": m,
+            "ano": a,
+            "inicio": inicio,
+            "fim": fim,
+            "dias": ultimo_dia,
+            "dias_uteis": dias_uteis,
+        },
+        "numeros": numeros,
+        "turmas": turmas,
+    }
+
+
 @router.get("/api/carteira/{id_carteira}")
 def obter_carteira(id_carteira: int):
     conn = cursor = None

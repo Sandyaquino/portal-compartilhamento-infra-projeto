@@ -712,6 +712,113 @@ function registrar(router) {
     enviarJson(res, 200, lista)
   })
 
+  // Gantt das turmas com carteiras geradas e confirmadas (PUBLICADA/CONCLUIDA
+  // por padrão), recortado por mês/ano. Cada turma vira uma linha; cada
+  // carteira em que ela atua vira uma barra do primeiro ao último dia de OS.
+  router.get("/api/carteira/gantt", (req, res, ctx) => {
+    const agora = new Date()
+    const mes = Math.min(12, Math.max(1, Number(ctx.query.get("mes")) || agora.getMonth() + 1))
+    const ano = Number(ctx.query.get("ano")) || agora.getFullYear()
+    const statusSet = new Set(
+      (ctx.query.get("status") || "PUBLICADA,CONCLUIDA")
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean),
+    )
+
+    const pad = (n) => String(n).padStart(2, "0")
+    const ultimoDia = new Date(ano, mes, 0).getDate()
+    const inicioMes = `${ano}-${pad(mes)}-01`
+    const fimMes = `${ano}-${pad(mes)}-${pad(ultimoDia)}`
+    let diasUteis = 0
+    for (let d = 1; d <= ultimoDia; d++) {
+      const wd = new Date(ano, mes - 1, d).getDay()
+      if (wd !== 0 && wd !== 6) diasUteis++
+    }
+
+    const carteirasOk = carteiras.filter((c) => statusSet.has(String(c.STATUS).toUpperCase()))
+    const carteiraById = new Map(carteirasOk.map((c) => [c.ID_CARTEIRA, c]))
+    const osNoMes = carteiraOS.filter(
+      (o) =>
+        carteiraById.has(o.ID_CARTEIRA) &&
+        o.DATA_PREVISTA >= inicioMes &&
+        o.DATA_PREVISTA <= fimMes,
+    )
+
+    const turmasMap = new Map()
+    for (const o of osNoMes) {
+      const chave = o.ID_EQUIPE ?? o.NOME_EQUIPE
+      if (!turmasMap.has(chave)) {
+        turmasMap.set(chave, {
+          id_equipe: o.ID_EQUIPE ?? null,
+          nome: o.NOME_EQUIPE || "—",
+          eps: o.EPS || null,
+          _os: [],
+        })
+      }
+      turmasMap.get(chave)._os.push(o)
+    }
+
+    const turmas = [...turmasMap.values()]
+      .map((t) => {
+        const porCarteira = new Map()
+        for (const o of t._os) {
+          if (!porCarteira.has(o.ID_CARTEIRA)) porCarteira.set(o.ID_CARTEIRA, [])
+          porCarteira.get(o.ID_CARTEIRA).push(o)
+        }
+        const barras = [...porCarteira.entries()]
+          .map(([idc, lista]) => {
+            const datas = lista.map((o) => o.DATA_PREVISTA).sort()
+            const c = carteiraById.get(idc) || {}
+            return {
+              id_carteira: idc,
+              titulo: c.TITULO || `Carteira ${idc}`,
+              status: c.STATUS || null,
+              modo: c.MODO || null,
+              estrategia: c.ESTRATEGIA || null,
+              inicio: datas[0],
+              fim: datas[datas.length - 1],
+              os: lista.length,
+              os_executadas: lista.filter((o) => o.STATUS === "EXECUTADA").length,
+              municipios: [...new Set(lista.map((o) => o.MUNICIPIO))].sort(),
+              dias: [...new Set(datas)],
+            }
+          })
+          .sort((a, b) => a.inicio.localeCompare(b.inicio))
+        return {
+          id_equipe: t.id_equipe,
+          nome: t.nome,
+          eps: t.eps,
+          total_os: t._os.length,
+          os_executadas: t._os.filter((o) => o.STATUS === "EXECUTADA").length,
+          dias_ocupados: new Set(t._os.map((o) => o.DATA_PREVISTA)).size,
+          municipios: [...new Set(t._os.map((o) => o.MUNICIPIO))].sort(),
+          barras,
+        }
+      })
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+
+    const totalDiasCampo = turmas.reduce((s, t) => s + t.dias_ocupados, 0)
+    const numeros = {
+      turmas: turmas.length,
+      carteiras: new Set(osNoMes.map((o) => o.ID_CARTEIRA)).size,
+      os_planejadas: osNoMes.length,
+      os_executadas: osNoMes.filter((o) => o.STATUS === "EXECUTADA").length,
+      dias_campo: totalDiasCampo,
+      municipios: new Set(osNoMes.map((o) => o.MUNICIPIO)).size,
+      ocupacao_media:
+        turmas.length && diasUteis
+          ? Number((totalDiasCampo / (turmas.length * diasUteis)).toFixed(3))
+          : 0,
+    }
+
+    enviarJson(res, 200, {
+      periodo: { mes, ano, inicio: inicioMes, fim: fimMes, dias: ultimoDia, dias_uteis: diasUteis },
+      numeros,
+      turmas,
+    })
+  })
+
   router.get("/api/carteira/:id", (req, res, ctx) => {
     const carteira = carteiras.find((c) => c.ID_CARTEIRA === Number(ctx.params.id))
     if (!carteira) return erroDetalhe(res, 404, "Carteira não encontrada")

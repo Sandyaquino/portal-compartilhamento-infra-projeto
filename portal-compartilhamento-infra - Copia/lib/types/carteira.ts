@@ -193,6 +193,58 @@ export type CarteiraDetalhe = {
   por_equipe: EquipeCarteira[]
 }
 
+// --- Gantt das turmas com carteiras geradas e confirmadas (por mês/ano) ---
+
+export type GanttBarra = {
+  id_carteira: number
+  titulo: string
+  status: StatusCarteira | null
+  modo: ModoCarteira | null
+  estrategia: string | null
+  inicio: string
+  fim: string
+  os: number
+  os_executadas: number
+  municipios: string[]
+  dias: string[]
+}
+
+export type GanttTurma = {
+  id_equipe: number | null
+  nome: string
+  eps: string | null
+  total_os: number
+  os_executadas: number
+  dias_ocupados: number
+  municipios: string[]
+  barras: GanttBarra[]
+}
+
+export type GanttPeriodo = {
+  mes: number
+  ano: number
+  inicio: string
+  fim: string
+  dias: number
+  dias_uteis: number
+}
+
+export type GanttNumeros = {
+  turmas: number
+  carteiras: number
+  os_planejadas: number
+  os_executadas: number
+  dias_campo: number
+  municipios: number
+  ocupacao_media: number
+}
+
+export type GanttTurmasResposta = {
+  periodo: GanttPeriodo
+  numeros: GanttNumeros
+  turmas: GanttTurma[]
+}
+
 export type GerarCarteiraPayload = {
   titulo?: string
   frequencia: FrequenciaCarteira

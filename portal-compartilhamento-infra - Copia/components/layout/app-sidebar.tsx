@@ -32,6 +32,7 @@ import {
   Wallet,
   UsersRound,
   UserCog,
+  CalendarClock,
 } from "lucide-react"
 
 import {
@@ -162,6 +163,11 @@ const menuItems = [
         title: "Carteira",
         url: "/operacao/carteira",
         icon: Route,
+      },
+      {
+        title: "Agenda das Turmas",
+        url: "/operacao/gantt",
+        icon: CalendarClock,
       },
       {
         title: "Despesas",
