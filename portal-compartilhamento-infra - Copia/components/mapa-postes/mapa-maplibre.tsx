@@ -165,6 +165,9 @@ export type MapaMapLibreProps = {
   // Poste alvo de uma busca por barramento - ganha um marcador em destaque
   // pra ser achado mesmo quando o filtro de operadora esconde os demais.
   posteDestaque?: PosteMapa | null
+  // Sinal de que o container mudou de tamanho (ex.: modo tela cheia) - o
+  // MapLibre só escuta resize da janela, então força um map.resize() aqui.
+  redimensionarSinal?: unknown
 }
 
 export default function MapaMapLibre({
@@ -183,6 +186,7 @@ export default function MapaMapLibre({
   acoes = [],
   onSelecionarAcao,
   posteDestaque = null,
+  redimensionarSinal,
 }: MapaMapLibreProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasDensidadeRef = useRef<HTMLCanvasElement | null>(null)
@@ -616,6 +620,16 @@ export default function MapaMapLibre({
     if (!map || !pronto) return
     map.getCanvas().style.cursor = modoSelecao ? "crosshair" : ""
   }, [modoSelecao, pronto])
+
+  // Entrar/sair do modo tela cheia muda o tamanho do container sem disparar
+  // resize da janela; avisa o mapa (com um respiro pra transição de CSS).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !pronto) return
+    map.resize()
+    const t = setTimeout(() => map.resize(), 260)
+    return () => clearTimeout(t)
+  }, [redimensionarSinal, pronto])
 
   useEffect(() => {
     const map = mapRef.current

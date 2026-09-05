@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle, CheckCircle2, Circle, Database, Flame, Gauge, Hexagon, Info, Layers, ListChecks, MapPin, MousePointerSquareDashed, Search, Square, X } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Circle, Database, Flame, Gauge, Hexagon, Info, Layers, ListChecks, Maximize2, MapPin, Minimize2, MousePointerSquareDashed, Search, Square, X } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { KpiCard } from "@/components/comercial/kpi-card"
@@ -154,6 +154,17 @@ function MapaPostesConteudo() {
   const [municipios, setMunicipios] = useState<MunicipioBounds[]>([])
   const [buscaMunicipio, setBuscaMunicipio] = useState("")
   const [vooPara, setVooPara] = useState<ViewportBounds | null>(null)
+
+  // Mapa em tela cheia (sobrepõe o app; sai no botão ou tecla Esc).
+  const [telaCheia, setTelaCheia] = useState(false)
+  useEffect(() => {
+    if (!telaCheia) return
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTelaCheia(false)
+    }
+    window.addEventListener("keydown", aoTeclar)
+    return () => window.removeEventListener("keydown", aoTeclar)
+  }, [telaCheia])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -924,7 +935,22 @@ function MapaPostesConteudo() {
             </div>
           )}
 
-          <div className="relative h-[70vh] w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+          <div
+            className={
+              telaCheia
+                ? "fixed inset-0 z-[1100] h-[100dvh] w-screen overflow-hidden border-0 bg-white"
+                : "relative h-[70vh] w-full overflow-hidden rounded-xl border border-slate-200 shadow-sm"
+            }
+          >
+            <button
+              type="button"
+              onClick={() => setTelaCheia((v) => !v)}
+              className="absolute right-3 top-3 z-[1200] inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-md hover:bg-white"
+              title={telaCheia ? "Sair da tela cheia (Esc)" : "Ampliar o mapa (tela cheia)"}
+            >
+              {telaCheia ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              {telaCheia ? "Sair" : "Tela cheia"}
+            </button>
             <MapaMapLibre
               postes={postesNoMapa}
               onMudarViewport={agendarCarga}
@@ -953,6 +979,7 @@ function MapaPostesConteudo() {
               acoes={acoesComBounds}
               onSelecionarAcao={selecionarAcao}
               posteDestaque={posteDestaque}
+              redimensionarSinal={telaCheia}
             />
             <PosteDetalheSheet
               poste={posteSelecionado}
