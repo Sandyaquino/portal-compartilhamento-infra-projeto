@@ -73,6 +73,8 @@ export type AreaMunicipio = {
   localidades: AreaLocalidade[]
 }
 
+export type ProvedorNoPoste = { RAZAO_SOCIAL: string | null; CNPJ: string | null }
+
 export type CarteiraOS = {
   ID_CARTEIRA_OS?: number
   ID_CARTEIRA?: number
@@ -84,6 +86,8 @@ export type CarteiraOS = {
   LATITUDE: number
   LONGITUDE: number
   TEM_PROVEDOR: "S" | "N"
+  QTD_PROVEDORES?: number
+  PROVEDORES?: ProvedorNoPoste[]
   ID_EQUIPE: number
   NOME_EQUIPE: string
   EPS: string
@@ -132,6 +136,7 @@ export type CriteriosCarteira = {
   localidades: number[]
   barramentos: string[]
   params?: Record<string, number>
+  raio_maximo_km?: number
 }
 
 // Sobreposição de postes com outras carteiras já registradas na base.
@@ -160,6 +165,8 @@ export type ResumoCarteira = {
   com_provedor: number
   candidatos_estrategia?: number
   capacidade?: number
+  nao_alocados?: number
+  raio_maximo_km?: number | null
 }
 
 export type DiaCarteira = {
@@ -199,6 +206,8 @@ export type GerarCarteiraPayload = {
   localidades: number[]
   barramentos?: string[]
   params?: Record<string, number>
+  // Raio máximo de atuação por equipe na semana (km). 0/vazio = sem limite.
+  raio_maximo_km?: number | null
   usuario?: string | null
   // ID da carteira sendo regerada (para ignorar ela mesma na checagem de duplicidade).
   id_carteira?: number

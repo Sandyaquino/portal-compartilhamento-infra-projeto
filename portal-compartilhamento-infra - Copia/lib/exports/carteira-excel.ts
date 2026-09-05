@@ -41,6 +41,8 @@ export function baixarCarteiraExcel(det: CarteiraDetalhe) {
     Barramento: o.DE_BARRAMENTO,
     NU_PG_ID: o.NU_PG_ID,
     "Tem provedor": o.TEM_PROVEDOR === "S" ? "Sim" : "Não",
+    "Qtd provedores": o.QTD_PROVEDORES ?? (o.PROVEDORES?.length ?? 0),
+    Provedores: (o.PROVEDORES ?? []).map((p) => p.RAZAO_SOCIAL ?? p.CNPJ ?? "").filter(Boolean).join(" | "),
     Latitude: o.LATITUDE,
     Longitude: o.LONGITUDE,
     "Estratégia": o.ESTRATEGIA ?? "",
@@ -53,7 +55,7 @@ export function baixarCarteiraExcel(det: CarteiraDetalhe) {
   const wsOs = XLSX.utils.json_to_sheet(linhas)
   wsOs["!cols"] = [
     { wch: 5 }, { wch: 11 }, { wch: 4 }, { wch: 11 }, { wch: 10 }, { wch: 24 },
-    { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 13 },
+    { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 44 }, { wch: 13 },
     { wch: 13 }, { wch: 22 }, { wch: 7 }, { wch: 42 }, { wch: 11 }, { wch: 40 }, { wch: 40 },
   ]
   XLSX.utils.book_append_sheet(wb, wsOs, "Ordens de Serviço")

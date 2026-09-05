@@ -246,7 +246,7 @@ function fatiarPorGeografia(lista, n) {
   return fatias
 }
 
-function alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps) {
+function alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps, raioMaximoM = 0) {
   const capEquipe = qtdPorDia * dias.length
 
   // agrupa por município (preservando a ordem por score)
@@ -337,15 +337,28 @@ function alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps) {
     let diaIdx = 0
     let restanteNoDia = qtdPorDia
     let ultimo = { lat: b.equipe.LATITUDE_BASE, lng: b.equipe.LONGITUDE_BASE }
+    // Âncora da SEMANA da equipe (centroide corrido dos postes já alocados).
+    // Com raio máximo, nenhum poste da semana fica além desse raio da âncora,
+    // pra não jogar a equipe pra longe no meio da semana.
+    const ancora = { somaLat: 0, somaLng: 0, n: 0 }
+    const dentroDoRaio = (poste) => {
+      if (!raioMaximoM || ancora.n === 0) return true
+      const c = { lat: ancora.somaLat / ancora.n, lng: ancora.somaLng / ancora.n }
+      return metros(c, pt(poste)) <= raioMaximoM
+    }
 
     for (const mun of ordemMun) {
       // postes do município ordenados por vizinho mais próximo (greedy TSP)
       const pend = [...mun.lista]
       while (pend.length) {
         if (diaIdx >= dias.length) break
-        pend.sort((x, y) => metros(ultimo, pt(x.poste)) - metros(ultimo, pt(y.poste)))
-        const s = pend.shift()
+        const candidatos = pend.filter((x) => dentroDoRaio(x.poste))
+        if (!candidatos.length) break // nada nesse município cabe no raio da semana da equipe
+        candidatos.sort((x, y) => metros(ultimo, pt(x.poste)) - metros(ultimo, pt(y.poste)))
+        const s = candidatos[0]
+        pend.splice(pend.indexOf(s), 1)
         const p = s.poste
+        const provedores = db.provedoresDoBarramento(p.DE_BARRAMENTO)
         os.push({
           SEQ: ++seq,
           NU_PG_ID: p.NU_PG_ID,
@@ -355,6 +368,8 @@ function alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps) {
           LATITUDE: p.NU_LATITUDE,
           LONGITUDE: p.NU_LONGITUDE,
           TEM_PROVEDOR: db.basePosteTemProvedor(p.DE_BARRAMENTO) ? "S" : "N",
+          QTD_PROVEDORES: provedores.length,
+          PROVEDORES: provedores,
           ID_EQUIPE: b.equipe.ID_EQUIPE,
           NOME_EQUIPE: b.equipe.NOME,
           EPS: nomeEps,
@@ -368,6 +383,9 @@ function alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps) {
           LINK_GMAPS: linkGmaps(p.NU_LATITUDE, p.NU_LONGITUDE),
           LINK_WAZE: linkWaze(p.NU_LATITUDE, p.NU_LONGITUDE),
         })
+        ancora.somaLat += p.NU_LATITUDE
+        ancora.somaLng += p.NU_LONGITUDE
+        ancora.n++
         ultimo = pt(p)
         if (--restanteNoDia === 0) {
           diaIdx++
@@ -390,6 +408,7 @@ function montarCarteira(corpo) {
   const dataFim = dias[dias.length - 1]
   const modo = corpo.modo === "MANUAL" ? "MANUAL" : "AUTOMATICA"
   const qtdPorDia = Math.max(1, Number(corpo.qtd_postes_dia) || 12)
+  const raioMaximoKm = Math.max(0, Number(corpo.raio_maximo_km) || 0)
 
   const idsEquipes = (corpo.ids_equipes || []).map(Number)
   let equipes = db.equipesCampo.filter((e) => e.ATIVO === "S" && idsEquipes.includes(e.ID_EQUIPE))
@@ -417,7 +436,8 @@ function montarCarteira(corpo) {
     }
   }
 
-  const os = alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps)
+  const os = alocarRota(selecionados, equipes, qtdPorDia, dias, nomeEps, raioMaximoKm * 1000)
+  const naoAlocados = Math.max(0, selecionados.length - os.length)
 
   const cabecalho = {
     TITULO:
@@ -466,6 +486,8 @@ function montarCarteira(corpo) {
     com_provedor: os.filter((o) => o.TEM_PROVEDOR === "S").length,
     candidatos_estrategia: selecionados.length,
     capacidade: qtdPorDia * dias.length * equipes.length,
+    nao_alocados: naoAlocados,
+    raio_maximo_km: raioMaximoKm || null,
   }
 
   return { cabecalho, os, resumo, por_dia: porDia, por_equipe: porEquipe }
@@ -597,6 +619,7 @@ function registrar(router) {
       params: corpo.params || {},
       ids_equipes: corpo.ids_equipes || [],
       barramentos: corpo.barramentos || [],
+      raio_maximo_km: Math.max(0, Number(corpo.raio_maximo_km) || 0) || null,
     })
   }
 

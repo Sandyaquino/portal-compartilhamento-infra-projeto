@@ -81,6 +81,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
   const [municipios, setMunicipios] = useState<string[]>([])
   const [localidades, setLocalidades] = useState<number[]>([])
   const [qtdDia, setQtdDia] = useState(12)
+  const [raioMaximoKm, setRaioMaximoKm] = useState("")
   const [barramentosTexto, setBarramentosTexto] = useState("")
   const [passoMapa, setPassoMapa] = useState(false)
 
@@ -104,6 +105,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
     setMunicipios(inicial?.municipios ?? [])
     setLocalidades(inicial?.localidades ?? [])
     setQtdDia(inicial?.qtd_postes_dia ?? 12)
+    setRaioMaximoKm(inicial?.raio_maximo_km ? String(inicial.raio_maximo_km) : "")
     setBarramentosTexto((inicial?.barramentos ?? []).join("\n"))
     setPassoMapa(false)
     setPreview(null)
@@ -203,6 +205,7 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
       id_eps: idEps,
       ids_equipes: idsEquipes,
       qtd_postes_dia: qtdDia,
+      raio_maximo_km: raioMaximoKm.trim() ? Math.max(0, Number(raioMaximoKm)) || null : null,
       municipios,
       localidades,
       barramentos: modo === "MANUAL" ? barramentosLista : undefined,
@@ -283,8 +286,8 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
           />
         ) : (
         <div className="grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="grid gap-1 text-sm sm:col-span-1">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm">
               <span className="font-medium text-slate-700">Frequência</span>
               <select value={frequencia} onChange={(e) => setFrequencia(e.target.value as FrequenciaCarteira)} className="h-9 rounded-lg border border-slate-300 px-2 text-sm">
                 {(Object.keys(LABEL_FREQUENCIA) as FrequenciaCarteira[]).map((f) => (
@@ -299,6 +302,23 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
             <label className="grid gap-1 text-sm">
               <span className="font-medium text-slate-700">Postes por dia (por equipe)</span>
               <input type="number" min={1} value={qtdDia} onChange={(e) => setQtdDia(Math.max(1, Number(e.target.value) || 1))} className="h-9 rounded-lg border border-slate-300 px-2 text-sm" />
+            </label>
+            <label className="grid gap-1 text-sm">
+              <span className="font-medium text-slate-700">
+                Raio máx. de atuação (km) <span className="text-slate-400">— logística</span>
+              </span>
+              <input
+                type="number"
+                min={0}
+                step="0.5"
+                value={raioMaximoKm}
+                onChange={(e) => { setRaioMaximoKm(e.target.value); setPreview(null) }}
+                placeholder="sem limite"
+                className="h-9 rounded-lg border border-slate-300 px-2 text-sm"
+              />
+              <span className="text-[11px] text-slate-400">
+                Mantém os serviços da semana de cada equipe dentro desse raio. Vazio = sem restrição.
+              </span>
             </label>
           </div>
 
@@ -472,6 +492,13 @@ export function NovaCarteiraModal({ open, onOpenChange, onCriada, inicial = null
                   <span className="text-slate-400"> (a lógica encontrou {preview.resumo.candidatos_estrategia} candidatos; capacidade {preview.resumo.capacidade})</span>
                 )}
               </p>
+              {preview.resumo.nao_alocados != null && preview.resumo.nao_alocados > 0 && (
+                <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800">
+                  {preview.resumo.nao_alocados} poste(s) não couberam na carteira
+                  {preview.resumo.raio_maximo_km ? ` (raio de ${preview.resumo.raio_maximo_km} km` : " (capacidade das equipes no período"}
+                  {preview.resumo.raio_maximo_km ? " / capacidade)" : ")"}. Gere outra carteira depois para os restantes ou aumente o raio.
+                </p>
+              )}
               {preview.duplicidade?.tem_conflito && (
                 <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800">
                   Atenção: {preview.duplicidade.total_postes} poste(s) desta seleção já estão em{" "}

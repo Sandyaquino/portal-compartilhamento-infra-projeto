@@ -191,6 +191,21 @@ function basePosteTemProvedor(deBarramento) {
   return barramentosResolvidos.has(deBarramento)
 }
 
+// Provedores (operadoras distintas) conectados naquele barramento, via
+// POSTE_OCUPACAO. Usado no Mapa de Postes e no gerador de Carteira.
+function provedoresDoBarramento(deBarramento) {
+  const vistos = new Set()
+  const lista = []
+  for (const o of ocupacoes) {
+    if (o.BARRAMENTO !== deBarramento || !o._idOperadora) continue
+    const chave = o.CNPJ || o.RAZAO_SOCIAL || String(o._idOperadora)
+    if (vistos.has(chave)) continue
+    vistos.add(chave)
+    lista.push({ RAZAO_SOCIAL: o.RAZAO_SOCIAL || o.ORGANIZATION_NAME || null, CNPJ: o.CNPJ || null })
+  }
+  return lista
+}
+
 // =====================================================
 // EPS (Empresa Prestadora de Serviço) e equipes de campo
 // (espelha sql/PORTAL_COMPARTILHAMENTO_CARTEIRA.sql). Alimentam o
@@ -1428,6 +1443,7 @@ module.exports = {
   basePostes,
   baseLocalidades,
   basePosteTemProvedor,
+  provedoresDoBarramento,
   // EPS / equipes de campo (gerador de carteira)
   eps,
   equipesCampo,

@@ -116,6 +116,7 @@ export default function CarteiraDetalhePage() {
     localidades?: number[]
     barramentos?: string[]
     params?: Record<string, number>
+    raio_maximo_km?: number | null
   }
   const parametros: ParamsCarteira = (() => {
     try {
@@ -138,6 +139,7 @@ export default function CarteiraDetalhePage() {
     localidades: parametros.localidades ?? [],
     barramentos: parametros.barramentos ?? [],
     params: parametros.params ?? {},
+    raio_maximo_km: parametros.raio_maximo_km ?? undefined,
   }
 
   return (
@@ -269,7 +271,19 @@ export default function CarteiraDetalhePage() {
                             {o.TEM_PROVEDOR === "N" ? (
                               <span className="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] font-semibold text-amber-700">sem provedor</span>
                             ) : (
-                              <span className="rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[11px] font-semibold text-green-700">com provedor</span>
+                              <>
+                                <span className="rounded-md border border-green-200 bg-green-50 px-1.5 py-0.5 text-[11px] font-semibold text-green-700">
+                                  {o.QTD_PROVEDORES ?? (o.PROVEDORES?.length ?? 1)} provedor{(o.QTD_PROVEDORES ?? o.PROVEDORES?.length ?? 1) === 1 ? "" : "es"}
+                                </span>
+                                {o.PROVEDORES && o.PROVEDORES.length > 0 && (
+                                  <span
+                                    className="mt-0.5 block max-w-[220px] truncate text-[11px] text-slate-500"
+                                    title={o.PROVEDORES.map((p) => p.RAZAO_SOCIAL ?? p.CNPJ ?? "?").join(", ")}
+                                  >
+                                    {o.PROVEDORES.map((p) => p.RAZAO_SOCIAL ?? p.CNPJ ?? "?").join(", ")}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </td>
                           <td className="px-3 py-2 font-mono text-xs text-slate-500">{o.LATITUDE.toFixed(6)}, {o.LONGITUDE.toFixed(6)}</td>

@@ -33,6 +33,8 @@ export function baixarCarteiraMapaHtml(det: CarteiraDetalhe) {
     ordem: o.ORDEM_NO_DIA,
     bar: o.DE_BARRAMENTO,
     prov: o.TEM_PROVEDOR,
+    qprov: o.QTD_PROVEDORES ?? (o.PROVEDORES?.length ?? 0),
+    provs: (o.PROVEDORES ?? []).map((p) => esc(p.RAZAO_SOCIAL ?? p.CNPJ ?? "")).filter(Boolean),
     gmaps: o.LINK_GMAPS,
     waze: o.LINK_WAZE,
     cor: corPorEquipe[o.NOME_EQUIPE],
@@ -125,7 +127,8 @@ export function baixarCarteiraMapaHtml(det: CarteiraDetalhe) {
       '<b class="t">OS #' + p.seq + ' — dia ' + p.diaIdx + ' (' + p.dia + '), parada ' + p.ordem + '</b>' +
       '<div class="row">' + p.mun + (p.loc ? ' · ' + p.loc : '') + '</div>' +
       '<div class="row">Equipe: <b>' + p.eq + '</b></div>' +
-      '<div class="row">Barramento: ' + p.bar + (p.prov === 'N' ? ' · <b>sem provedor</b>' : '') + '</div>' +
+      '<div class="row">Barramento: ' + p.bar + (p.prov === 'N' ? ' · <b>sem provedor</b>' : ' · <b>' + p.qprov + ' provedor' + (p.qprov === 1 ? '' : 'es') + '</b>') + '</div>' +
+      (p.provs && p.provs.length ? '<div class="row" style="color:#475569">' + p.provs.join(', ') + '</div>' : '') +
       '<div class="row">' + p.lat.toFixed(6) + ', ' + p.lng.toFixed(6) + '</div>' +
       '<div class="links"><a href="' + p.gmaps + '" target="_blank" rel="noopener">Google Maps</a>' +
       '<a href="' + p.waze + '" target="_blank" rel="noopener">Waze</a></div>' +

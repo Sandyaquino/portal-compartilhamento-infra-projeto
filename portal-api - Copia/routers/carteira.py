@@ -41,6 +41,7 @@ TB_ESCOPO = f'"{SCHEMA}"."PORTAL_COMPARTILHAMENTO_CARTEIRA_ESCOPO"'
 TB_OS = f'"{SCHEMA}"."PORTAL_COMPARTILHAMENTO_CARTEIRA_OS"'
 TB_BASE = f'"{SCHEMA}"."PORTAL_COMPARTILHAMENTO_BASE_POSTE"'
 TB_OCUPACAO = f'"{SCHEMA}"."PORTAL_COMPARTILHAMENTO_POSTE_OCUPACAO"'
+TB_OPERADORA = f'"{SCHEMA}"."PORTAL_COMPARTILHAMENTO_OPERADORA"'
 
 # Marca se o barramento tem provedor resolvido (mesma regra de base_postes.py).
 _TEM_PROVEDOR = f"""
@@ -326,6 +327,8 @@ def _garantir_tabelas(cursor) -> None:
                 "STATUS" NVARCHAR(15) DEFAULT 'PLANEJADA',
                 "LINK_GMAPS" NVARCHAR(300),
                 "LINK_WAZE" NVARCHAR(300),
+                "QTD_PROVEDORES" INTEGER DEFAULT 0,
+                "PROVEDORES_JSON" NVARCHAR(2000),
                 "EXECUTADO_EM" LONGDATE CS_LONGDATE,
                 "OBSERVACAO" NVARCHAR(1000),
                 "CREATED_AT" LONGDATE CS_LONGDATE,
@@ -333,6 +336,16 @@ def _garantir_tabelas(cursor) -> None:
             ) UNLOAD PRIORITY 5 AUTO MERGE
             """
         )
+
+    # CARTEIRA_OS pode ja existir sem as colunas de provedores -> ALTER guardado.
+    try:
+        cursor.execute(f'SELECT QTD_PROVEDORES FROM {TB_OS} WHERE 1 = 0')
+        cursor.fetchone()
+    except Exception:
+        try:
+            cursor.execute(f'ALTER TABLE {TB_OS} ADD ("QTD_PROVEDORES" INTEGER DEFAULT 0, "PROVEDORES_JSON" NVARCHAR(2000))')
+        except Exception:
+            pass
 
     # catálogo de estratégias — sempre garante as 6 linhas
     cursor.execute(f"SELECT CODIGO FROM {TB_ESTRATEGIA}")
@@ -663,10 +676,41 @@ def _base_pt(e: dict) -> Dict[str, float]:
     return {"lat": e.get("LATITUDE_BASE") or 0.0, "lng": e.get("LONGITUDE_BASE") or 0.0}
 
 
+def _provedores_por_barramento(cursor, barras: List[str]) -> Dict[str, List[dict]]:
+    """Provedores (operadoras distintas) conectados em cada barramento."""
+    mapa: Dict[str, List[dict]] = {}
+    alvo = sorted({b for b in barras if b})
+    for i in range(0, len(alvo), 800):
+        lote = alvo[i : i + 800]
+        marc = ",".join(["?"] * len(lote))
+        try:
+            cursor.execute(
+                f"""
+                SELECT DISTINCT O.BARRAMENTO, OP.RAZAO_SOCIAL, OP.CNPJ
+                FROM {TB_OCUPACAO} O
+                JOIN {TB_OPERADORA} OP ON OP.ID = O.ID_OPERADORA
+                WHERE O.ID_OPERADORA IS NOT NULL AND O.BARRAMENTO IN ({marc})
+                """,
+                lote,
+            )
+            for barra, razao, cnpj in cursor.fetchall():
+                mapa.setdefault(barra, []).append({"RAZAO_SOCIAL": razao, "CNPJ": cnpj})
+        except Exception:
+            pass
+    return mapa
+
+
 def _alocar_rota(
-    selecionados: List[dict], equipes: List[dict], qtd_por_dia: int, dias: List[str], nome_eps: str
+    selecionados: List[dict],
+    equipes: List[dict],
+    qtd_por_dia: int,
+    dias: List[str],
+    nome_eps: str,
+    raio_maximo_m: float = 0.0,
+    provedores_por_barra: Optional[Dict[str, List[dict]]] = None,
 ) -> List[dict]:
     cap_equipe = qtd_por_dia * len(dias)
+    prov_map = provedores_por_barra or {}
 
     por_mun: Dict[str, List[dict]] = {}
     for s in selecionados:
@@ -740,15 +784,29 @@ def _alocar_rota(
         dia_idx = 0
         restante_no_dia = qtd_por_dia
         ultimo = _base_pt(b["equipe"])
+        # Ancora da SEMANA da equipe (centroide corrido). Com raio maximo,
+        # nenhum poste da semana fica alem desse raio da ancora.
+        ancora = {"soma_lat": 0.0, "soma_lng": 0.0, "n": 0}
+
+        def _dentro_do_raio(poste: dict) -> bool:
+            if not raio_maximo_m or ancora["n"] == 0:
+                return True
+            c = {"lat": ancora["soma_lat"] / ancora["n"], "lng": ancora["soma_lng"] / ancora["n"]}
+            return _metros(c, _pt(poste)) <= raio_maximo_m
 
         for mun in ordem_mun:
             pend = list(mun["lista"])
             while pend:
                 if dia_idx >= len(dias):
                     break
-                pend.sort(key=lambda s: _metros(ultimo, _pt(s["poste"])))
-                s = pend.pop(0)
+                candidatos = [s for s in pend if _dentro_do_raio(s["poste"])]
+                if not candidatos:
+                    break
+                candidatos.sort(key=lambda s: _metros(ultimo, _pt(s["poste"])))
+                s = candidatos[0]
+                pend.remove(s)
                 p = s["poste"]
+                provs = prov_map.get(p["DE_BARRAMENTO"], [])
                 seq += 1
                 os_lista.append(
                     {
@@ -760,6 +818,8 @@ def _alocar_rota(
                         "LATITUDE": p["NU_LATITUDE"],
                         "LONGITUDE": p["NU_LONGITUDE"],
                         "TEM_PROVEDOR": "S" if _tem_prov(p) else "N",
+                        "QTD_PROVEDORES": len(provs),
+                        "PROVEDORES": provs,
                         "ID_EQUIPE": b["equipe"]["ID_EQUIPE"],
                         "NOME_EQUIPE": b["equipe"]["NOME"],
                         "EPS": nome_eps,
@@ -774,6 +834,9 @@ def _alocar_rota(
                         "LINK_WAZE": _link_waze(p["NU_LATITUDE"], p["NU_LONGITUDE"]),
                     }
                 )
+                ancora["soma_lat"] += p["NU_LATITUDE"]
+                ancora["soma_lng"] += p["NU_LONGITUDE"]
+                ancora["n"] += 1
                 ultimo = _pt(p)
                 restante_no_dia -= 1
                 if restante_no_dia == 0:
@@ -830,6 +893,10 @@ def _montar_carteira(cursor, corpo: dict) -> dict:
     data_fim = dias[-1] if dias else data_inicio
     modo = "MANUAL" if corpo.get("modo") == "MANUAL" else "AUTOMATICA"
     qtd_por_dia = max(1, int(corpo.get("qtd_postes_dia") or 12))
+    try:
+        raio_maximo_km = max(0.0, float(corpo.get("raio_maximo_km") or 0))
+    except (TypeError, ValueError):
+        raio_maximo_km = 0.0
 
     ids_equipes = [int(x) for x in (corpo.get("ids_equipes") or [])]
     id_eps = int(corpo["id_eps"]) if corpo.get("id_eps") else None
@@ -875,7 +942,11 @@ def _montar_carteira(cursor, corpo: dict) -> dict:
         if not selecionados:
             return {"erro": f'A estratégia "{estrategia_cod}" não encontrou postes com o critério nesta área.'}
 
-    os_lista = _alocar_rota(selecionados, equipes, qtd_por_dia, dias, nome_eps)
+    prov_map = _provedores_por_barramento(cursor, [s["poste"]["DE_BARRAMENTO"] for s in selecionados])
+    os_lista = _alocar_rota(
+        selecionados, equipes, qtd_por_dia, dias, nome_eps, raio_maximo_km * 1000, prov_map
+    )
+    nao_alocados = max(0, len(selecionados) - len(os_lista))
 
     titulo = corpo.get("titulo") or (
         f"Carteira {frequencia.lower()} - {data_inicio}"
@@ -898,10 +969,16 @@ def _montar_carteira(cursor, corpo: dict) -> dict:
     agr = _agrupamentos(dias, os_lista, equipes)
     agr["resumo"]["candidatos_estrategia"] = len(selecionados)
     agr["resumo"]["capacidade"] = qtd_por_dia * len(dias) * len(equipes)
+    agr["resumo"]["nao_alocados"] = nao_alocados
+    agr["resumo"]["raio_maximo_km"] = raio_maximo_km or None
     return {"cabecalho": cabecalho, "os": os_lista, **agr}
 
 
 def _params_json(corpo: dict) -> str:
+    try:
+        raio = max(0.0, float(corpo.get("raio_maximo_km") or 0)) or None
+    except (TypeError, ValueError):
+        raio = None
     return json.dumps(
         {
             "municipios": corpo.get("municipios") or [],
@@ -909,6 +986,7 @@ def _params_json(corpo: dict) -> str:
             "params": corpo.get("params") or {},
             "ids_equipes": corpo.get("ids_equipes") or [],
             "barramentos": corpo.get("barramentos") or [],
+            "raio_maximo_km": raio,
         }
     )
 
@@ -979,14 +1057,16 @@ def _inserir_os(cursor, id_carteira: int, os_lista: List[dict]) -> None:
             INSERT INTO {TB_OS}
                 (ID_CARTEIRA, SEQ, NU_PG_ID, DE_BARRAMENTO, MUNICIPIO, LOCALIDADE, LATITUDE, LONGITUDE,
                  TEM_PROVEDOR, ID_EQUIPE, NOME_EQUIPE, EPS, DATA_PREVISTA, DIA_INDICE, ORDEM_NO_DIA,
-                 ESTRATEGIA, SCORE, MOTIVO, STATUS, LINK_GMAPS, LINK_WAZE, CREATED_AT)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TO_DATE(?, 'YYYY-MM-DD'), ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_UTCTIMESTAMP)
+                 ESTRATEGIA, SCORE, MOTIVO, STATUS, LINK_GMAPS, LINK_WAZE,
+                 QTD_PROVEDORES, PROVEDORES_JSON, CREATED_AT)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TO_DATE(?, 'YYYY-MM-DD'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_UTCTIMESTAMP)
             """,
             [
                 id_carteira, o["SEQ"], o["NU_PG_ID"], o["DE_BARRAMENTO"], o["MUNICIPIO"], o["LOCALIDADE"],
                 o["LATITUDE"], o["LONGITUDE"], o["TEM_PROVEDOR"], o["ID_EQUIPE"], o["NOME_EQUIPE"], o["EPS"],
                 o["DATA_PREVISTA"], o["DIA_INDICE"], o["ORDEM_NO_DIA"], o["ESTRATEGIA"], o["SCORE"], o["MOTIVO"],
                 o["STATUS"], o["LINK_GMAPS"], o["LINK_WAZE"],
+                o.get("QTD_PROVEDORES") or 0, json.dumps(o.get("PROVEDORES") or [], ensure_ascii=False),
             ],
         )
 
@@ -1023,6 +1103,12 @@ def _detalhe(cursor, id_carteira: int) -> Optional[dict]:
 
     cursor.execute(f"SELECT * FROM {TB_OS} WHERE ID_CARTEIRA = ? ORDER BY SEQ", [id_carteira])
     os_lista = _rows(cursor)
+    for o in os_lista:
+        try:
+            o["PROVEDORES"] = json.loads(o.get("PROVEDORES_JSON") or "[]")
+        except Exception:
+            o["PROVEDORES"] = []
+        o.pop("PROVEDORES_JSON", None)
 
     dias = sorted({o["DATA_PREVISTA"] for o in os_lista})
     nomes_equipe = sorted({o["NOME_EQUIPE"] for o in os_lista})
