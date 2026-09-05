@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import Link from "next/link"
-import { AlertTriangle, ArrowLeft, Cable, Info, MapPin, Radar, Route as RouteIcon, Zap } from "lucide-react"
+import { AlertTriangle, ArrowLeft, Cable, FileDown, Info, MapPin, Radar, Route as RouteIcon, Zap } from "lucide-react"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { KpiCard } from "@/components/comercial/kpi-card"
@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/ui/empty-state"
 import { CriarAcaoModal, type CriarAcaoValues, type UsuarioOpcao } from "@/components/mapa-postes/criar-acao-modal"
 import { useCurrentUser } from "@/hooks/use-current-user"
 import { apiFetch } from "@/lib/config"
+import { baixarAnaliseRedeExcel } from "@/lib/exports/analise-rede-excel"
 import type { Operadora, PosteMapa } from "@/lib/types/postes"
 import type { ViewportBounds } from "@/components/mapa-postes/mapa-maplibre"
 import type {
@@ -496,9 +497,9 @@ export default function AnaliseRedePage() {
                 <Button
                   type="button"
                   size="sm"
-                  onClick={() => abrirAcao([selecionado.BARRAMENTO], `Fiscalizar poste ${selecionado.BARRAMENTO} (rota não faturada)`)}
+                  onClick={() => abrirAcao([selecionado.BARRAMENTO], `Poste ${selecionado.BARRAMENTO} — rota não faturada`)}
                 >
-                  Criar ação de fiscalização
+                  Gerar ação
                 </Button>
               </div>
               <ul className="mt-2 space-y-1 text-xs text-slate-600">
@@ -516,24 +517,30 @@ export default function AnaliseRedePage() {
           )}
 
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
               <h2 className="text-sm font-semibold text-slate-900">
                 Postes sinalizados{resultado ? ` (${resultado.postes.length})` : ""}
               </h2>
               {resultado && resultado.postes.length > 0 && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    abrirAcao(
-                      resultado.postes.map((p) => p.BARRAMENTO),
-                      `Fiscalização — rota não faturada (${resultado.parametros.municipio})`,
-                    )
-                  }
-                >
-                  Criar ação com todos
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => baixarAnaliseRedeExcel(resultado)}>
+                    <FileDown className="h-4 w-4" />
+                    Exportar Excel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      abrirAcao(
+                        resultado.postes.map((p) => p.BARRAMENTO),
+                        `Rota não faturada — ${resultado.parametros.municipio}`,
+                      )
+                    }
+                  >
+                    Gerar ação (todos)
+                  </Button>
+                </div>
               )}
             </div>
             <div className="max-h-[420px] overflow-auto">
