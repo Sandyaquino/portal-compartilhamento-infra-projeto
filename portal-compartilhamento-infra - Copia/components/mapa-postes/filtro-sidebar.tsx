@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ChevronDown, Crosshair, MapPin, Search } from "lucide-react"
 
 import { FilterField } from "@/components/ui/filter-field"
@@ -55,15 +55,18 @@ export function FiltroSidebar({
   onZoomOperadoraMunicipio,
 }: FiltroSidebarProps) {
   const [busca, setBusca] = useState("")
-  const [operadoraExpandida, setOperadoraExpandida] = useState<number | null>(null)
+  // Operadoras não marcadas cuja lista de municípios está aberta pra espiar.
+  // As marcadas mostram a lista sempre (é o comportamento pedido: selecionou,
+  // aparecem os municípios).
+  const [espiando, setEspiando] = useState<Set<number>>(() => new Set())
   const [municipiosPorOperadora, setMunicipiosPorOperadora] = useState<
     Record<number, MunicipioOperadora[] | "carregando" | "erro">
   >({})
+  const carregandoRef = useRef<Set<number>>(new Set())
 
-  function alternarMunicipios(id: number) {
-    const abrindo = operadoraExpandida !== id
-    setOperadoraExpandida(abrindo ? id : null)
-    if (!abrindo || municipiosPorOperadora[id]) return
+  function garantirMunicipios(id: number) {
+    if (municipiosPorOperadora[id] || carregandoRef.current.has(id)) return
+    carregandoRef.current.add(id)
     setMunicipiosPorOperadora((atual) => ({ ...atual, [id]: "carregando" }))
     apiFetch(`/api/postes/operadora-municipios?id_operadora=${id}`, { cache: "no-store" })
       .then((resposta) => (resposta.ok ? resposta.json() : Promise.reject(new Error("falhou"))))
@@ -71,7 +74,26 @@ export function FiltroSidebar({
         setMunicipiosPorOperadora((atual) => ({ ...atual, [id]: dados })),
       )
       .catch(() => setMunicipiosPorOperadora((atual) => ({ ...atual, [id]: "erro" })))
+      .finally(() => carregandoRef.current.delete(id))
   }
+
+  function alternarEspiar(id: number) {
+    setEspiando((atual) => {
+      const prox = new Set(atual)
+      if (prox.has(id)) prox.delete(id)
+      else {
+        prox.add(id)
+        garantirMunicipios(id)
+      }
+      return prox
+    })
+  }
+
+  // Assim que uma operadora entra na seleção, já carrega os municípios dela.
+  useEffect(() => {
+    for (const id of idsOperadoras) garantirMunicipios(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsOperadoras])
 
   const operadorasFiltradas = useMemo(() => {
     const termo = busca.trim().toLowerCase()
@@ -153,7 +175,9 @@ export function FiltroSidebar({
             {operadorasFiltradas.map((operadora) => {
               const marcado = idsOperadoras.includes(operadora.ID)
               const cor = coresOperadoras[operadora.ID] ?? corPadraoOperadora(operadora.ID)
-              const expandida = operadoraExpandida === operadora.ID
+              // Marcada => lista de municípios sempre visível; não marcada =>
+              // só quando o usuário clica no chevron pra espiar.
+              const listaAberta = marcado || espiando.has(operadora.ID)
               const municipios = municipiosPorOperadora[operadora.ID]
               return (
                 <div key={operadora.ID} className="border-b border-slate-100 last:border-b-0">
@@ -197,22 +221,29 @@ export function FiltroSidebar({
                         <Crosshair className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => alternarMunicipios(operadora.ID)}
-                      aria-expanded={expandida}
-                      className={`shrink-0 rounded p-1 hover:bg-slate-100 hover:text-primary ${
-                        expandida ? "text-primary" : "text-slate-400"
-                      }`}
-                      title="Municípios em que esta operadora atua"
-                    >
-                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expandida ? "rotate-180" : ""}`} />
-                    </button>
+                    {!marcado && (
+                      <button
+                        type="button"
+                        onClick={() => alternarEspiar(operadora.ID)}
+                        aria-expanded={listaAberta}
+                        className={`shrink-0 rounded p-1 hover:bg-slate-100 hover:text-primary ${
+                          listaAberta ? "text-primary" : "text-slate-400"
+                        }`}
+                        title="Municípios em que esta operadora atua"
+                      >
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${listaAberta ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                    )}
                   </div>
 
-                  {expandida && (
+                  {listaAberta && (
                     <div className="bg-slate-50 px-2.5 pb-2">
-                      {municipios === "carregando" && (
+                      <p className="px-1 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                        Municípios da operadora — clique pra dar zoom
+                      </p>
+                      {(municipios === undefined || municipios === "carregando") && (
                         <p className="px-1 py-1.5 text-xs text-slate-400">Carregando municípios…</p>
                       )}
                       {municipios === "erro" && (
